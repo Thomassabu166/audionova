@@ -85,6 +85,23 @@ lyrics/
 *.flac
 *.m4a
 
+# Video files (usually large)
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.wmv
+*.webm
+video/
+videos/
+
+# Large files (>50MB)
+*.zip
+*.rar
+*.tar.gz
+*.dmg
+*.iso
+
 # Backup files
 *.bak
 *.backup
