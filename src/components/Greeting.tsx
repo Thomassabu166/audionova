@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useGoogleProfilePicture } from '../hooks/useGoogleProfilePicture';
 
 function timeOfDayLabel() {
   const h = new Date().getHours();
@@ -16,32 +17,12 @@ function emojiFor(label: string) {
 export default function Greeting() {
   const { user } = useAuth();
   const [label, setLabel] = useState(timeOfDayLabel());
-  const [profilePicture, setProfilePicture] = useState<string | null>(null);
+  const { profilePicture, isLoading } = useGoogleProfilePicture();
 
   useEffect(() => {
     // Update every 15 minutes if app stays open
     const t = setInterval(() => setLabel(timeOfDayLabel()), 15 * 60 * 1000);
     return () => clearInterval(t);
-  }, []);
-
-  useEffect(() => {
-    // Load profile picture from localStorage or Firebase
-    if (user) {
-      const savedPicture = localStorage.getItem(`profilePicture_${user.uid}`);
-      setProfilePicture(savedPicture || user.photoURL || null);
-    }
-  }, [user]);
-
-  useEffect(() => {
-    // Listen for profile picture updates
-    const handleProfileUpdate = (event: CustomEvent) => {
-      setProfilePicture(event.detail.photoURL);
-    };
-
-    window.addEventListener('profilePictureUpdated', handleProfileUpdate as EventListener);
-    return () => {
-      window.removeEventListener('profilePictureUpdated', handleProfileUpdate as EventListener);
-    };
   }, []);
 
   // Use displayName or email as fallback
@@ -52,12 +33,30 @@ export default function Greeting() {
       {/* Profile Picture */}
       {user && (
         <div className="w-12 h-12 rounded-full overflow-hidden bg-gradient-to-br from-red-500 to-purple-600 flex items-center justify-center flex-shrink-0 shadow-lg">
-          {profilePicture ? (
-            <img 
-              src={profilePicture} 
-              alt="Profile" 
-              className="w-full h-full object-cover"
-            />
+          {isLoading ? (
+            <div className="w-6 h-6 border-2 border-white/30 border-l-white rounded-full animate-spin"></div>
+          ) : profilePicture ? (
+            <div className="relative w-full h-full">
+              <img 
+                src={profilePicture} 
+                alt="Profile" 
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  target.style.display = 'none';
+                  const initialsSpan = target.parentElement?.querySelector('.initials-fallback') as HTMLElement;
+                  if (initialsSpan) {
+                    initialsSpan.style.display = 'flex';
+                  }
+                }}
+              />
+              <span 
+                className="initials-fallback text-lg font-bold text-white w-full h-full flex items-center justify-center absolute inset-0"
+                style={{ display: 'none' }}
+              >
+                {name?.charAt(0)?.toUpperCase() || 'U'}
+              </span>
+            </div>
           ) : (
             <span className="text-lg font-bold text-white">
               {name?.charAt(0)?.toUpperCase() || 'U'}

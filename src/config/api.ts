@@ -13,7 +13,7 @@ export const FIREBASE_CONFIG = {
 
 // API endpoints
 export const API_ENDPOINTS = {
-  BASE_URL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5008',
+  BASE_URL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5009',
   NEW_RELEASES: '/api/new-releases',
   SEARCH: '/api/search',
 };
@@ -31,10 +31,13 @@ export const validateEnvVars = () => {
   );
 
   if (missingVars.length > 0) {
-    console.warn(
-      'Missing required environment variables:',
-      missingVars.join(', ')
-    );
+    // Only warn if not in demo mode
+    if (import.meta.env.VITE_FIREBASE_API_KEY !== 'demo-api-key') {
+      console.warn(
+        'Missing required environment variables:',
+        missingVars.join(', ')
+      );
+    }
   }
 };
 

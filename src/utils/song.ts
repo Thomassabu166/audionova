@@ -221,3 +221,46 @@ export const dedupeById = <T extends { id?: string }>(arr: T[]): T[] => {
   }
   return Array.from(map.values());
 };
+
+/**
+ * Advanced deduplication by song name and artist (for cases where same song has different IDs)
+ */
+export const dedupeByNameAndArtist = <T extends { name?: string; primaryArtists?: string; id?: string }>(arr: T[]): T[] => {
+  const map = new Map<string, T>();
+  const duplicatesFound: string[] = [];
+  
+  for (const s of arr) {
+    if (s && s.name && s.primaryArtists) {
+      // Create a normalized key from song name and artist
+      const key = `${s.name.toLowerCase().trim()}-${s.primaryArtists.toLowerCase().trim()}`;
+      if (!map.has(key)) {
+        map.set(key, s);
+      } else {
+        duplicatesFound.push(`${s.name} by ${s.primaryArtists}`);
+      }
+    }
+  }
+  
+  if (duplicatesFound.length > 0) {
+    console.log(`[dedupeByNameAndArtist] Removed ${duplicatesFound.length} duplicates:`, duplicatesFound.slice(0, 5));
+  }
+  
+  return Array.from(map.values());
+};
+
+/**
+ * Combined deduplication - first by ID, then by name+artist
+ */
+export const dedupeSongs = <T extends { id?: string; name?: string; primaryArtists?: string }>(arr: T[]): T[] => {
+  const originalLength = arr.length;
+  
+  // First dedupe by ID
+  const deduped = dedupeById(arr);
+  console.log(`[dedupeSongs] ID dedup: ${originalLength} → ${deduped.length}`);
+  
+  // Then dedupe by name and artist to catch same songs with different IDs
+  const final = dedupeByNameAndArtist(deduped);
+  console.log(`[dedupeSongs] Name+Artist dedup: ${deduped.length} → ${final.length}`);
+  
+  return final;
+};

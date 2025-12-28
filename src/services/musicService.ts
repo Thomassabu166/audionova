@@ -8,31 +8,83 @@ export interface UnifiedSong extends Song {
 
 class MusicService {
   /**
-   * Search songs across multiple music services
+   * Search songs across multiple music services with smart image enhancement
    */
   async searchSongs(query: string, limit: number = 50): Promise<UnifiedSong[]> {
     try {
-      // Search using JioSaavn API
+      // Search using JioSaavn API only (Gaana API is not properly implemented)
       const jiosaavnSongs = await jiosaavnApi.searchSongs(query, limit);
-      const unifiedJioSaavnSongs: UnifiedSong[] = jiosaavnSongs.map(song => ({
+      
+      // Enhance only the first few songs with detailed information for better images
+      // This is done selectively to avoid console spam while improving quality for visible songs
+      const enhancedSongs = await this.enhanceSearchResultsImages(jiosaavnSongs.slice(0, 10));
+      const remainingSongs = jiosaavnSongs.slice(10);
+      
+      const allSongs = [...enhancedSongs, ...remainingSongs];
+      const unifiedJioSaavnSongs: UnifiedSong[] = allSongs.map(song => ({
         ...song,
         source: 'jiosaavn'
       }));
 
-      // Search using Gaana API (currently placeholder)
-      const gaanaSongs = await gaanaApi.searchSongs(query, limit);
-      const unifiedGaanaSongs: UnifiedSong[] = gaanaSongs.map(song => ({
-        ...song,
-        source: 'gaana'
-      }));
-
-      // Combine results from both services
-      // In a real implementation, you might want to implement some ranking or deduplication
-      return [...unifiedJioSaavnSongs, ...unifiedGaanaSongs];
+      console.log(`[MusicService] Search completed: ${unifiedJioSaavnSongs.length} songs found`);
+      
+      return unifiedJioSaavnSongs;
     } catch (error) {
-      console.error('Error searching songs across services:', error);
+      console.error('Error searching songs:', error);
       return [];
     }
+  }
+
+  /**
+   * Enhance search results with better image quality (selective enhancement)
+   */
+  private async enhanceSearchResultsImages(songs: any[]): Promise<any[]> {
+    const enhancedSongs = await Promise.all(
+      songs.map(async (song) => {
+        try {
+          // Only try to enhance if the current image quality seems low
+          const needsEnhancement = this.needsImageEnhancement(song);
+          
+          if (needsEnhancement) {
+            const detailedSong = await jiosaavnApi.getSongById(song.id);
+            if (detailedSong && detailedSong.image && Array.isArray(detailedSong.image)) {
+              // Use the detailed song's image array which should have better quality options
+              return {
+                ...song,
+                image: detailedSong.image,
+                // Also update other fields that might be better in detailed response
+                duration: detailedSong.duration || song.duration
+              };
+            }
+          }
+          
+          return song;
+        } catch (error) {
+          // Silently return original song if enhancement fails
+          return song;
+        }
+      })
+    );
+    
+    return enhancedSongs;
+  }
+
+  /**
+   * Check if a song needs image enhancement
+   */
+  private needsImageEnhancement(song: any): boolean {
+    if (!song.image || !Array.isArray(song.image)) {
+      return true; // Needs enhancement if no image array
+    }
+    
+    // Check if we have high-quality images (500x500 or higher)
+    const hasHighQuality = song.image.some((img: any) => {
+      if (!img.quality) return false;
+      const quality = img.quality.toLowerCase();
+      return quality.includes('500x500') || quality.includes('400x400');
+    });
+    
+    return !hasHighQuality; // Needs enhancement if no high-quality images found
   }
 
   /**
@@ -40,7 +92,7 @@ class MusicService {
    */
   async getTrendingSongs(limit: number = 20): Promise<UnifiedSong[]> {
     try {
-      // Get trending songs from JioSaavn
+      // Get trending songs from JioSaavn only (Gaana API disabled)
       const jiosaavnTrending = await jiosaavnApi.getTrendingSongs();
       console.log('MusicService: JioSaavn returned', jiosaavnTrending.length, 'trending songs');
       
@@ -54,17 +106,9 @@ class MusicService {
         source: 'jiosaavn'
       }));
 
-      // Get trending songs from Gaana (currently placeholder)
-      const gaanaTrending = await gaanaApi.getTrendingSongs();
-      const unifiedGaanaSongs: UnifiedSong[] = gaanaTrending.map(song => ({
-        ...song,
-        source: 'gaana'
-      }));
-
-      // Combine and limit results
-      const combined = [...unifiedJioSaavnSongs, ...unifiedGaanaSongs];
-      console.log('MusicService: Returning', combined.length, 'combined trending songs');
-      return combined.slice(0, limit);
+      // Note: Gaana API is disabled to prevent console spam
+      console.log('MusicService: Returning', unifiedJioSaavnSongs.length, 'trending songs from JioSaavn');
+      return unifiedJioSaavnSongs.slice(0, limit);
     } catch (error) {
       console.error('Error getting trending songs:', error);
       // Fallback to JioSaavn only

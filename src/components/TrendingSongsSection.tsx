@@ -137,7 +137,7 @@ const TrendingSongsSection: React.FC<TrendingSongsSectionProps> = ({
           animate={{ opacity: 1 }}
         >
           <motion.div
-            className="w-8 h-8 border-4 border-red-500 border-t-transparent rounded-full"
+            className="w-8 h-8 border-4 border-red-500/30 border-l-red-500 rounded-full"
             animate={{ rotate: 360 }}
             transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
           />
@@ -184,7 +184,7 @@ const TrendingSongsSection: React.FC<TrendingSongsSectionProps> = ({
           >
             {refreshing ? (
               <motion.div
-                className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full"
+                className="w-4 h-4 border-2 border-red-500/30 border-l-red-500 rounded-full"
                 animate={{ rotate: 360 }}
                 transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
               />
@@ -218,13 +218,6 @@ const TrendingSongsSection: React.FC<TrendingSongsSectionProps> = ({
                 transition={{ duration: 0.3 }}
                 className="relative"
               >
-                {/* Rank Badge - Top Left */}
-                <div className="absolute top-2 left-2 z-20 w-8 h-8 bg-red-500 rounded-full flex items-center justify-center shadow-lg">
-                  <span className="text-sm font-bold text-white">
-                    {song.rank}
-                  </span>
-                </div>
-
                 {/* Delta Badge - Top Right */}
                 {delta.text !== '—' && (
                   <div className={`absolute top-2 right-2 z-20 px-2 py-1 rounded-full text-xs font-bold ${delta.color} bg-black/60 backdrop-blur-sm`}>

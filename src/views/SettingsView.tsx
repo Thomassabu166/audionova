@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { 
@@ -13,8 +13,7 @@ import {
 } from 'lucide-react';
 import { useSettings } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
-import { updateProfile } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { useGoogleProfilePicture } from '@/hooks/useGoogleProfilePicture';
 import toast from 'react-hot-toast';
 
 const SettingsView = () => {
@@ -23,15 +22,7 @@ const SettingsView = () => {
   const { user, logout } = useAuth();
   const [activeSection, setActiveSection] = useState('account');
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const [profilePicture, setProfilePicture] = useState<string | null>(null);
-
-  // Load profile picture from localStorage
-  useEffect(() => {
-    if (user) {
-      const savedPicture = localStorage.getItem(`profilePicture_${user.uid}`);
-      setProfilePicture(savedPicture || user.photoURL || null);
-    }
-  }, [user]);
+  const { profilePicture, updateProfilePicture } = useGoogleProfilePicture();
 
   const handleLogout = async () => {
     try {
@@ -58,21 +49,9 @@ const SettingsView = () => {
         try {
           const photoURL = reader.result as string;
           
-          // Save to localStorage immediately
-          localStorage.setItem(`profilePicture_${user.uid}`, photoURL);
-          
-          // Update local state immediately for instant UI update
-          setProfilePicture(photoURL);
-          
-          // Update Firebase Auth profile in background
-          if (auth.currentUser) {
-            await updateProfile(auth.currentUser, { photoURL });
-          }
-          
-          // Dispatch custom event to update other components
-          window.dispatchEvent(new CustomEvent('profilePictureUpdated', { 
-            detail: { photoURL } 
-          }));
+          // Only use the hook's update function (localStorage)
+          // Don't update Firebase Auth profile with base64 data as it's too long
+          updateProfilePicture(photoURL);
           
           toast.success('Profile picture updated!');
         } catch (error) {

@@ -10,7 +10,7 @@ import {
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { Download, Music, Youtube, Music4, AlertCircle, Loader2, Save } from 'lucide-react';
+import { Download, Youtube, Music4, Loader2, Save } from 'lucide-react';
 import { useMusic } from '../context/MusicContext';
 import { toast } from 'sonner';
 
@@ -20,7 +20,7 @@ interface PlaylistImportDialogProps {
 
 const PlaylistImportDialog: React.FC<PlaylistImportDialogProps> = ({ children }) => {
   const [open, setOpen] = useState(false);
-  const [spotifyUrl, setSpotifyUrl] = useState('https://open.spotify.com/playlist/46KGKo4zFNS613c2Vy9RSX?si=EoGf6m_pQ8yTqRmvzG_Ing');
+  const [spotifyUrl, setSpotifyUrl] = useState('');
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const { setQueue, savePlaylist } = useMusic();
@@ -71,11 +71,20 @@ const PlaylistImportDialog: React.FC<PlaylistImportDialogProps> = ({ children })
         }
         
         // Call backend API to import Spotify playlist
-        const response = await fetch(`http://localhost:5008/api/import/spotify/${playlistId}`);
+        const response = await fetch(`http://localhost:5009/api/import/spotify/${playlistId}`);
         const data = await response.json();
         
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${data.error || response.statusText}`);
+          const errorMessage = data.error || response.statusText;
+          
+          // Provide specific guidance for common issues
+          if (response.status === 400 && errorMessage.includes('curated playlists')) {
+            throw new Error('This appears to be a Spotify curated playlist (like Discover Weekly or Daily Mix). These cannot be imported due to Spotify API limitations. Please try importing a public user-created playlist instead.');
+          } else if (response.status === 404) {
+            throw new Error('Playlist not found. Please check that the playlist is public and the URL is correct.');
+          } else {
+            throw new Error(`Import failed: ${errorMessage}`);
+          }
         }
         
         if (!data.success) {
@@ -102,7 +111,7 @@ const PlaylistImportDialog: React.FC<PlaylistImportDialogProps> = ({ children })
             tracks: data.playlist.tracks,
             image: data.playlist.image,
             createdAt: new Date(),
-            version: 1, // Add the required version property
+            version: 1,
           };
           
           savePlaylist(playlistToSave);
@@ -124,7 +133,7 @@ const PlaylistImportDialog: React.FC<PlaylistImportDialogProps> = ({ children })
         }
         
         // Call backend API to import YouTube playlist
-        const response = await fetch(`http://localhost:5008/api/import/youtube/${playlistId}`);
+        const response = await fetch(`http://localhost:5009/api/import/youtube/${playlistId}`);
         const data = await response.json();
         
         if (!response.ok) {
@@ -175,7 +184,7 @@ const PlaylistImportDialog: React.FC<PlaylistImportDialogProps> = ({ children })
             Import Playlist
           </DialogTitle>
           <DialogDescription>
-            Import up to 400 songs from Spotify or YouTube playlists
+            Import songs from Spotify or YouTube playlists
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={(e) => handleImport(e, false)} className="space-y-4">
@@ -190,9 +199,6 @@ const PlaylistImportDialog: React.FC<PlaylistImportDialogProps> = ({ children })
               value={spotifyUrl}
               onChange={(e) => setSpotifyUrl(e.target.value)}
             />
-            <p className="text-xs text-muted-foreground">
-              Example: https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M
-            </p>
           </div>
           
           <div className="space-y-2">
@@ -206,22 +212,6 @@ const PlaylistImportDialog: React.FC<PlaylistImportDialogProps> = ({ children })
               value={youtubeUrl}
               onChange={(e) => setYoutubeUrl(e.target.value)}
             />
-            <p className="text-xs text-muted-foreground">
-              Example: https://www.youtube.com/playlist?list=PLMC9KNkIncKtPzgY-5rmhvj7fax8fdxoj
-            </p>
-          </div>
-          
-          <div className="bg-blue-500/10 border border-blue-500/20 rounded-md p-3">
-            <div className="flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-sm font-medium text-blue-500">Backend Required</p>
-                <p className="text-xs text-blue-500/80">
-                  This feature requires a backend service running on port 5008 to handle API requests.
-                  Now imports up to 400 songs from Spotify playlists.
-                </p>
-              </div>
-            </div>
           </div>
           
           <div className="flex justify-end gap-2 pt-4">

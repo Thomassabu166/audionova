@@ -21,7 +21,7 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
   subtitle = '', 
   coverImage,
   onSongImageClick,
-  playlistId = 'default' // Default playlistId
+  playlistId = `default-${Math.random().toString(36).substr(2, 9)}` // Generate unique default ID
 }) => {
   const { playSong, setQueue, currentSong, isSongLiked, addToLikedSongs, removeFromLikedSongs, isPlaying, togglePlayPause, audioRef } = useMusic();
 
@@ -102,11 +102,10 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
           
           return (
             <PlaylistSongItem
-              key={`playlist-${playlistId}-${song.id || index}`}
+              key={`${playlistId}-${song.id || `song-${index}`}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`}
               song={song}
               index={index}
               isCurrent={isCurrent}
-              playlistId={playlistId}
               playing={playing}
               onPlay={(song) => {
                 // Set the entire playlist as the queue

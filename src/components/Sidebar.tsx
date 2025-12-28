@@ -11,13 +11,15 @@ import {
   ChevronLeft, 
   ChevronRight, 
   Play, 
-  Pause
+  Pause,
+  Shield
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { Button } from './ui/button';
 import { motion } from 'framer-motion';
 import { useMusic } from '../context/MusicContext';
+import { useAuth } from '../context/AuthContext';
 import type { Song } from '../services/jiosaavnApi';
 import SidebarQuickActions from './SidebarQuickActions';
 
@@ -32,12 +34,14 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed = false, onToggle }) => {
   const [selectedTracks, setSelectedTracks] = useState<Song[]>([]);
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
   const { isPlaying, togglePlayPause, currentSong, likedSongs } = useMusic();
+  const { isAdmin } = useAuth();
 
   const navItems = [
     { icon: Home, label: 'Home', path: '/' },
     { icon: Search, label: 'Search', path: '/search' },
     { icon: Library, label: 'Library', path: '/library' },
     { icon: Heart, label: 'Liked Songs', path: '/liked-songs', count: likedSongs.length },
+    ...(isAdmin ? [{ icon: Shield, label: 'Admin Dashboard', path: '/admin' }] : []),
   ];
 
   const toggleTheme = () => {

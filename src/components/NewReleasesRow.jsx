@@ -28,9 +28,9 @@ const NewReleasesRow = () => {
       setLoading(true);
       
       // Build API endpoint based on selected language
-      let apiUrl = 'http://localhost:5008/api/new-releases?limit=25'; // Changed from 20 to 25
+      let apiUrl = 'http://localhost:5009/api/new-releases?limit=25'; // Changed from 20 to 25
       if (selectedLanguage !== 'all') {
-        apiUrl = `http://localhost:5008/api/new-releases/${selectedLanguage}?limit=25`; // Changed from 20 to 25
+        apiUrl = `http://localhost:5009/api/new-releases/${selectedLanguage}?limit=25`; // Changed from 20 to 25
       }
       
       console.log('Fetching from URL:', apiUrl);
@@ -74,7 +74,7 @@ const NewReleasesRow = () => {
       
       // Fallback to trending songs if new releases API fails
       try {
-        const trendingResponse = await fetch('http://localhost:5008/api/trending?limit=25'); // Changed from 20 to 25
+        const trendingResponse = await fetch('http://localhost:5009/api/trending?limit=25'); // Changed from 20 to 25
         if (trendingResponse.ok) {
           const trendingData = await trendingResponse.json();
           if (trendingData.success) {
@@ -144,7 +144,7 @@ const NewReleasesRow = () => {
       try {
         // Only attempt SSE connection if we're not already showing an error
         if (!error || !error.includes('Failed to load')) {
-          eventSource = new EventSource('http://localhost:5008/api/new-releases/events');
+          eventSource = new EventSource('http://localhost:5009/api/new-releases/events');
           
           eventSource.onopen = () => {
             console.log('SSE connection opened for new releases');

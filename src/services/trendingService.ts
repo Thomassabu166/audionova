@@ -104,12 +104,24 @@ class TrendingService {
     try {
       console.log('[TrendingService] Fetching trending songs from APIs...');
       
-      // Fetch from all language endpoints in parallel
+      // Fetch from all language endpoints with better error handling
       const [mal, ta, hi, en] = await Promise.all([
-        jiosaavnApi.getTrendingSongs().catch(() => []),
-        jiosaavnApi.getTamilTrendingSongs().catch(() => []),
-        jiosaavnApi.getHindiTrendingSongs().catch(() => []),
-        jiosaavnApi.getEnglishNewReleases().catch(() => []),
+        jiosaavnApi.getTrendingSongs().catch((err) => {
+          console.warn('[TrendingService] Malayalam fetch failed:', err?.message);
+          return [];
+        }),
+        jiosaavnApi.getTamilTrendingSongs().catch((err) => {
+          console.warn('[TrendingService] Tamil fetch failed:', err?.message);
+          return [];
+        }),
+        jiosaavnApi.getHindiTrendingSongs().catch((err) => {
+          console.warn('[TrendingService] Hindi fetch failed:', err?.message);
+          return [];
+        }),
+        jiosaavnApi.getEnglishNewReleases().catch((err) => {
+          console.warn('[TrendingService] English fetch failed:', err?.message);
+          return [];
+        }),
       ]);
 
       console.log('[TrendingService] Fetched:', {
@@ -118,6 +130,18 @@ class TrendingService {
         hindi: hi.length,
         english: en.length,
       });
+
+      // Check if we have any data at all
+      const totalFetched = mal.length + ta.length + hi.length + en.length;
+      if (totalFetched === 0) {
+        console.warn('[TrendingService] No data fetched from any API');
+        // Return cached data if available
+        if (this.cache && this.cache.songs.length > 0) {
+          console.log('[TrendingService] Returning stale cached data (no fresh data available)');
+          return this.cache.songs.slice(0, limit);
+        }
+        throw new Error('No trending data available from any source');
+      }
 
       // Aggressive shuffling to ensure different songs on each refresh
       const shuffleMal = [...mal]

@@ -2,56 +2,23 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings, LogOut, Heart, Library } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useGoogleProfilePicture } from '../hooks/useGoogleProfilePicture';
 
 interface ProfileDropdownProps {
   userName?: string;
   userEmail?: string;
-  userAvatar?: string;
-  userId?: string; // Add userId prop for localStorage key
   onLogout?: () => void;
 }
 
 const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
   userName = 'Music Lover',
   userEmail = 'user@example.com',
-  userAvatar,
-  userId,
   onLogout
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [profilePicture, setProfilePicture] = useState<string | null>(userAvatar || null);
+  const { profilePicture, isLoading } = useGoogleProfilePicture();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
-
-  // Load profile picture from localStorage
-  useEffect(() => {
-    const loadProfilePicture = () => {
-      if (userId) {
-        const savedPicture = localStorage.getItem(`profilePicture_${userId}`);
-        if (savedPicture) {
-          setProfilePicture(savedPicture);
-        } else if (userAvatar) {
-          setProfilePicture(userAvatar);
-        }
-      } else if (userAvatar) {
-        setProfilePicture(userAvatar);
-      }
-    };
-    
-    loadProfilePicture();
-  }, [userAvatar, userId]);
-
-  // Listen for profile picture updates
-  useEffect(() => {
-    const handleProfileUpdate = (event: CustomEvent) => {
-      setProfilePicture(event.detail.photoURL);
-    };
-
-    window.addEventListener('profilePictureUpdated', handleProfileUpdate as EventListener);
-    return () => {
-      window.removeEventListener('profilePictureUpdated', handleProfileUpdate as EventListener);
-    };
-  }, []);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -125,10 +92,33 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
       {/* Profile Button - Just Avatar */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-purple-600 flex items-center justify-center text-white text-sm font-semibold overflow-hidden hover:ring-2 hover:ring-white/30 transition-all duration-200 shadow-lg"
+        className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-purple-600 flex items-center justify-center text-white text-sm font-semibold overflow-hidden hover:ring-2 hover:ring-white/30 transition-all duration-200 shadow-lg relative"
       >
-        {profilePicture ? (
-          <img src={profilePicture} alt={userName} className="w-full h-full object-cover" />
+        {isLoading ? (
+          <div className="w-4 h-4 border-2 border-white/30 border-l-white rounded-full animate-spin"></div>
+        ) : profilePicture ? (
+          <div className="relative w-full h-full">
+            <img 
+              src={profilePicture} 
+              alt={userName} 
+              className="w-full h-full object-cover" 
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.style.display = 'none';
+                // Show initials instead
+                const initialsSpan = target.parentElement?.querySelector('.initials-fallback') as HTMLElement;
+                if (initialsSpan) {
+                  initialsSpan.style.display = 'flex';
+                }
+              }}
+            />
+            <span 
+              className="initials-fallback w-full h-full flex items-center justify-center absolute inset-0"
+              style={{ display: 'none' }}
+            >
+              {getInitials(userName)}
+            </span>
+          </div>
         ) : (
           <span>{getInitials(userName)}</span>
         )}
@@ -147,9 +137,32 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
             {/* User Info Header */}
             <div className="px-4 py-3 border-b border-border bg-gradient-to-r from-red-500/10 to-purple-600/10">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-purple-600 flex items-center justify-center text-white font-semibold overflow-hidden">
-                  {profilePicture ? (
-                    <img src={profilePicture} alt={userName} className="w-full h-full object-cover" />
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-purple-600 flex items-center justify-center text-white font-semibold overflow-hidden relative">
+                  {isLoading ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-l-white rounded-full animate-spin"></div>
+                  ) : profilePicture ? (
+                    <div className="relative w-full h-full">
+                      <img 
+                        src={profilePicture} 
+                        alt={userName} 
+                        className="w-full h-full object-cover" 
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = 'none';
+                          // Show initials instead
+                          const initialsSpan = target.parentElement?.querySelector('.initials-fallback') as HTMLElement;
+                          if (initialsSpan) {
+                            initialsSpan.style.display = 'flex';
+                          }
+                        }}
+                      />
+                      <span 
+                        className="initials-fallback w-full h-full flex items-center justify-center absolute inset-0"
+                        style={{ display: 'none' }}
+                      >
+                        {getInitials(userName)}
+                      </span>
+                    </div>
                   ) : (
                     <span>{getInitials(userName)}</span>
                   )}

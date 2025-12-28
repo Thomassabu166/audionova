@@ -80,18 +80,8 @@ class GaanaAPI {
    */
   async searchSongs(query: string, limit: number = 50): Promise<any[]> {
     try {
-      console.warn('Gaana API search is not implemented as it requires specific Gaana URLs');
-      console.warn('To use Gaana API, you need to provide direct Gaana song URLs');
-      
-      // For demonstration purposes, we'll return an empty array
-      // In a real implementation with a working endpoint, this would be:
-      /*
-      const response = await axios.get(`${this.baseURL}/search`, {
-        params: { query, limit }
-      });
-      return response.data.songs || [];
-      */
-      
+      // Gaana API search is not implemented - return empty array silently
+      // to prevent console spam during search operations
       return [];
     } catch (error) {
       console.error('Error searching songs on Gaana:', error);
@@ -127,18 +117,7 @@ class GaanaAPI {
    */
   async getTrendingSongs(limit: number = 50): Promise<any[]> {
     try {
-      // Placeholder implementation
-      console.warn('Gaana API getTrendingSongs is not implemented without a working endpoint');
-      
-      // For demonstration, we could return sample data
-      // In a real implementation with a working endpoint, this would be:
-      /*
-      const response = await axios.get(`${this.baseURL}/trending`, {
-        params: { limit }
-      });
-      return response.data.songs.map(convertGaanaSongToStandard) || [];
-      */
-      
+      // Gaana API trending is not implemented - return empty array silently
       return [];
     } catch (error) {
       console.error('Error getting trending songs from Gaana:', error);

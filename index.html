@@ -5,6 +5,68 @@
     <link rel="icon" type="image/jpeg" href="/logo.jpg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AudioNova</title>
+    
+    <!-- Suppress CORS and Firebase errors early -->
+    <script>
+      (function() {
+        // Store original console methods
+        const originalError = console.error;
+        const originalWarn = console.warn;
+        const originalLog = console.log;
+        
+        // Override console methods to suppress CORS errors
+        console.error = function(...args) {
+          const message = String(args[0] || '');
+          const fullMessage = args.join(' ');
+          
+          if (message.includes('Cross-Origin-Opener-Policy') ||
+              message.includes('window.closed') ||
+              message.includes('window.close') ||
+              fullMessage.includes('Cross-Origin-Opener-Policy') ||
+              fullMessage.includes('window.closed') ||
+              fullMessage.includes('window.close')) {
+            return; // Suppress CORS errors
+          }
+          
+          return originalError.apply(console, args);
+        };
+        
+        console.warn = function(...args) {
+          const message = String(args[0] || '');
+          const fullMessage = args.join(' ');
+          
+          if (message.includes('Cross-Origin-Opener-Policy') ||
+              message.includes('window.closed') ||
+              message.includes('window.close') ||
+              message.includes('Self-XSS') ||
+              fullMessage.includes('Cross-Origin-Opener-Policy') ||
+              fullMessage.includes('window.closed') ||
+              fullMessage.includes('window.close') ||
+              fullMessage.includes('Self-XSS')) {
+            return; // Suppress CORS warnings
+          }
+          
+          return originalWarn.apply(console, args);
+        };
+        
+        // Global error handler
+        window.addEventListener('error', function(event) {
+          if (event.message && event.message.includes('Cross-Origin-Opener-Policy')) {
+            event.preventDefault();
+            event.stopPropagation();
+            return false;
+          }
+        }, true);
+        
+        // Global unhandled rejection handler
+        window.addEventListener('unhandledrejection', function(event) {
+          if (event.reason && String(event.reason).includes('Cross-Origin-Opener-Policy')) {
+            event.preventDefault();
+            return false;
+          }
+        }, true);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

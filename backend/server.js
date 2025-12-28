@@ -6,6 +6,10 @@ const bcrypt = require('bcryptjs');
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 
+// MongoDB connection
+const { connectToMongoDB } = require('./config/mongodb');
+const User = require('./models/User');
+
 // Debug environment variables
 console.log('Current working directory:', process.cwd());
 console.log('Script directory:', __dirname);
@@ -13,14 +17,21 @@ console.log('Environment variables file path:', path.resolve(__dirname, '.env'))
 console.log('Environment variables:');
 console.log('SPOTIFY_CLIENT_ID:', process.env.SPOTIFY_CLIENT_ID ? 'Set' : 'Not set');
 console.log('SPOTIFY_CLIENT_SECRET:', process.env.SPOTIFY_CLIENT_SECRET ? 'Set' : 'Not set');
-console.log('PORT:', process.env.PORT || 5008);
+console.log('MONGODB_URI:', process.env.MONGODB_URI ? 'Set' : 'Not set');
+console.log('PORT:', process.env.PORT || 5009);
 
 const app = express();
 const PORT = process.env.PORT || 5009;
 
-// In-memory user storage for demo purposes
-// In a real application, you would use a database
-const users = [];
+// Initialize MongoDB connection
+connectToMongoDB().then(() => {
+  console.log('✅ MongoDB initialization completed');
+}).catch(err => {
+  console.warn('⚠️ MongoDB initialization failed, continuing with fallback storage:', err.message);
+});
+
+// Fallback in-memory user storage for when MongoDB is not available
+const fallbackUsers = [];
 
 app.use(cors());
 app.use(express.json());
@@ -31,8 +42,8 @@ app.use(express.static(path.join(__dirname, '../dist')));
 // Spotify API credentials (you'll need to register your app at developer.spotify.com)
 const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
 const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
-// SPOTIFY_REDIRECT_URI is not needed for Client Credentials flow
-const SPOTIFY_REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI || 'http://localhost:5009/callback';
+const SPOTIFY_REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI || 'http://localhost:3000';
+// Note: SPOTIFY_REDIRECT_URI is required by Spotify but not used for Client Credentials flow
 
 // JWT secret - in production, use a strong secret and store it in environment variables
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
@@ -59,8 +70,25 @@ app.use('/api/trending', trendingRouter);
 const coverVerificationRouter = require('./routes/cover-verification');
 app.use('/api/cover-verification', coverVerificationRouter);
 
+// Add admin routes
+const adminRouter = require('./routes/admin');
+app.use('/api/admin', adminRouter);
+
+// Add analytics routes
+const analyticsRouter = require('./routes/analytics');
+app.use('/api', analyticsRouter);
+
 // Function to get Spotify access token
 async function getSpotifyAccessToken() {
+  // Check if Spotify credentials are configured
+  if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET) {
+    throw new Error('Spotify API credentials not configured. Please set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET in your .env file.');
+  }
+  
+  if (SPOTIFY_CLIENT_ID === 'your_spotify_client_id_here' || SPOTIFY_CLIENT_SECRET === 'your_spotify_client_secret_here') {
+    throw new Error('Please replace the placeholder Spotify credentials with your actual API keys from https://developer.spotify.com/dashboard/applications');
+  }
+  
   const authString = Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString('base64');
   
   try {
@@ -86,6 +114,9 @@ async function getSpotifyAccessToken() {
 // Function to get Spotify playlist tracks
 async function getSpotifyPlaylistTracks(playlistId, accessToken) {
   try {
+    // First, let's try to get basic playlist info to see what the issue is
+    console.log(`Attempting to fetch playlist: ${playlistId}`);
+    
     // Fetch the first 100 tracks
     let allTracks = [];
     let offset = 0;
@@ -98,13 +129,15 @@ async function getSpotifyPlaylistTracks(playlistId, accessToken) {
         'Authorization': `Bearer ${accessToken}`
       },
       params: {
-        fields: 'id,name,description,images,tracks.items(track(id,name,duration_ms,explicit,external_urls,album(name,release_date,label,external_urls,images,copyrights),artists(name,id))),tracks.total',
+        fields: 'id,name,description,images,tracks.items(track(id,name,duration_ms,explicit,external_urls,album(name,release_date,label,external_urls,images,copyrights),artists(name,id))),tracks.total,public,owner.display_name',
         limit: limit,
         offset: offset
       }
     });
     
     const playlistData = initialResponse.data;
+    console.log(`Playlist found: ${playlistData.name} by ${playlistData.owner?.display_name}`);
+    console.log(`Playlist is public: ${playlistData.public}`);
     totalTracks = playlistData.tracks.total;
     
     // Add the first batch of tracks
@@ -163,7 +196,15 @@ async function getSpotifyPlaylistTracks(playlistId, accessToken) {
     console.error('Error getting Spotify playlist:', error.response?.data || error.message);
     console.error('Playlist ID:', playlistId);
     console.error('Access Token:', accessToken ? 'Set' : 'Not set');
-    throw new Error(`Failed to get Spotify playlist: ${error.response?.status} - ${error.response?.data?.error?.message || error.message}`);
+    
+    // Provide more specific error messages
+    if (error.response?.status === 404) {
+      throw new Error(`Playlist not found. This could be because: 1) The playlist is private, 2) The playlist ID is incorrect, or 3) The playlist has been deleted. Note: Spotify's Client Credentials flow cannot access private playlists or some curated playlists.`);
+    } else if (error.response?.status === 403) {
+      throw new Error(`Access forbidden. The playlist might be private or require user authentication. Our current setup uses Client Credentials which has limited access to playlists.`);
+    } else {
+      throw new Error(`Failed to get Spotify playlist: ${error.response?.status} - ${error.response?.data?.error?.message || error.message}`);
+    }
   }
 }
 
@@ -250,48 +291,100 @@ app.post('/api/auth/register', async (req, res) => {
       });
     }
 
-    // Check if user already exists
-    const existingUser = users.find(u => u.email === email);
-    if (existingUser) {
+    // Validate password length
+    if (password.length < 6) {
       return res.status(400).json({ 
         success: false, 
-        error: 'User with this email already exists' 
+        error: 'Password must be at least 6 characters long' 
       });
     }
 
-    // Hash password
-    const saltRounds = 10;
-    const hashedPassword = await bcrypt.hash(password, saltRounds);
-
-    // Create user
-    const user = {
-      id: Date.now().toString(),
-      email,
-      name,
-      password: hashedPassword
-    };
-
-    users.push(user);
-
-    // Generate JWT token
-    const token = jwt.sign(
-      { id: user.id, email: user.email, name: user.name },
-      JWT_SECRET,
-      { expiresIn: '24h' }
-    );
-
-    res.status(201).json({
-      success: true,
-      message: 'User registered successfully',
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name
+    try {
+      // Try MongoDB first
+      const existingUser = await User.findOne({ email: email.toLowerCase() });
+      if (existingUser) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'User with this email already exists' 
+        });
       }
-    });
+
+      // Create user in MongoDB
+      const user = new User({
+        email: email.toLowerCase(),
+        name,
+        password // Will be hashed by the pre-save middleware
+      });
+
+      await user.save();
+
+      // Generate JWT token
+      const token = jwt.sign(
+        { id: user._id.toString(), email: user.email, name: user.name },
+        JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+
+      console.log('✅ User registered successfully in MongoDB:', user.email);
+
+      res.status(201).json({
+        success: true,
+        message: 'User registered successfully',
+        token,
+        user: {
+          id: user._id.toString(),
+          email: user.email,
+          name: user.name
+        }
+      });
+    } catch (mongoError) {
+      console.warn('⚠️ MongoDB registration failed, using fallback storage:', mongoError.message);
+      
+      // Fallback to in-memory storage
+      const existingUser = fallbackUsers.find(u => u.email === email.toLowerCase());
+      if (existingUser) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'User with this email already exists' 
+        });
+      }
+
+      // Hash password
+      const saltRounds = 10;
+      const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+      // Create user in fallback storage
+      const user = {
+        id: Date.now().toString(),
+        email: email.toLowerCase(),
+        name,
+        password: hashedPassword
+      };
+
+      fallbackUsers.push(user);
+
+      // Generate JWT token
+      const token = jwt.sign(
+        { id: user.id, email: user.email, name: user.name },
+        JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+
+      console.log('✅ User registered successfully in fallback storage:', user.email);
+
+      res.status(201).json({
+        success: true,
+        message: 'User registered successfully',
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name
+        }
+      });
+    }
   } catch (error) {
-    console.error('Error registering user:', error.message);
+    console.error('❌ Error registering user:', error.message);
     res.status(500).json({
       success: false,
       error: 'Internal server error'
@@ -312,43 +405,87 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    // Find user
-    const user = users.find(u => u.email === email);
-    if (!user) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Invalid email or password' 
-      });
-    }
-
-    // Verify password
-    const isValidPassword = await bcrypt.compare(password, user.password);
-    if (!isValidPassword) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Invalid email or password' 
-      });
-    }
-
-    // Generate JWT token
-    const token = jwt.sign(
-      { id: user.id, email: user.email, name: user.name },
-      JWT_SECRET,
-      { expiresIn: '24h' }
-    );
-
-    res.json({
-      success: true,
-      message: 'Login successful',
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name
+    try {
+      // Try MongoDB first
+      const user = await User.findOne({ email: email.toLowerCase() });
+      if (!user) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Invalid email or password' 
+        });
       }
-    });
+
+      // Verify password using the model method
+      const isValidPassword = await user.comparePassword(password);
+      if (!isValidPassword) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Invalid email or password' 
+        });
+      }
+
+      // Generate JWT token
+      const token = jwt.sign(
+        { id: user._id.toString(), email: user.email, name: user.name },
+        JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+
+      console.log('✅ User logged in successfully from MongoDB:', user.email);
+
+      res.json({
+        success: true,
+        message: 'Login successful',
+        token,
+        user: {
+          id: user._id.toString(),
+          email: user.email,
+          name: user.name
+        }
+      });
+    } catch (mongoError) {
+      console.warn('⚠️ MongoDB login failed, using fallback storage:', mongoError.message);
+      
+      // Fallback to in-memory storage
+      const user = fallbackUsers.find(u => u.email === email.toLowerCase());
+      if (!user) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Invalid email or password' 
+        });
+      }
+
+      // Verify password
+      const isValidPassword = await bcrypt.compare(password, user.password);
+      if (!isValidPassword) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Invalid email or password' 
+        });
+      }
+
+      // Generate JWT token
+      const token = jwt.sign(
+        { id: user.id, email: user.email, name: user.name },
+        JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+
+      console.log('✅ User logged in successfully from fallback storage:', user.email);
+
+      res.json({
+        success: true,
+        message: 'Login successful',
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name
+        }
+      });
+    }
   } catch (error) {
-    console.error('Error logging in:', error.message);
+    console.error('❌ Error logging in:', error.message);
     res.status(500).json({
       success: false,
       error: 'Internal server error'
@@ -364,10 +501,67 @@ app.get('/api/auth/profile', authenticateToken, (req, res) => {
   });
 });
 
+// Test endpoint to verify analytics system is working
+app.post('/api/test/play', async (req, res) => {
+  try {
+    console.log('[Test] Received test play request:', req.body);
+    res.json({
+      success: true,
+      message: 'Test endpoint working - check analytics routes for actual functionality'
+    });
+  } catch (error) {
+    console.error('[Test] Error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// API endpoint to test Spotify connection
+app.get('/api/test/spotify', async (req, res) => {
+  try {
+    const accessToken = await getSpotifyAccessToken();
+    
+    // Test with a simple search instead of playlist access
+    const testResponse = await axios.get('https://api.spotify.com/v1/search', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      },
+      params: {
+        q: 'test',
+        type: 'track',
+        limit: 1
+      }
+    });
+    
+    res.json({
+      success: true,
+      message: 'Spotify API connection working',
+      testData: testResponse.data
+    });
+  } catch (error) {
+    console.error('Spotify test error:', error.response?.data || error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error.response?.data
+    });
+  }
+});
+
 // API endpoint to import Spotify playlist
 app.get('/api/import/spotify/:playlistId', async (req, res) => {
   try {
     const { playlistId } = req.params;
+    
+    // Check for common Spotify curated playlist patterns that won't work with Client Credentials
+    if (playlistId.startsWith('37i9dQZF1D') || playlistId.startsWith('37i9dQZEVX')) {
+      return res.status(400).json({
+        success: false,
+        error: 'Spotify curated playlists (like Discover Weekly, Daily Mix, etc.) cannot be imported using our current setup. Please try importing a public user-created playlist instead.'
+      });
+    }
     
     // Get Spotify access token
     const accessToken = await getSpotifyAccessToken();

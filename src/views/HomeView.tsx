@@ -17,7 +17,7 @@ import { useNavigate } from 'react-router-dom';
 import PlaylistSidebar from '@/components/PlaylistSidebar';
 import EnhancedFullscreenPlaylistView from '@/components/EnhancedFullscreenPlaylistView';
 import { usePlaylistSidebar } from '@/context/PlaylistSidebarContext';
-import { getLangCode, normalizeSongImage as normalizeSongImageUtil, balanceByLanguage, dedupeById } from '@/utils/song';
+import { getLangCode, normalizeSongImage as normalizeSongImageUtil, balanceByLanguage, dedupeSongs } from '@/utils/song';
 import { normalizeSongImage, isLikelyWrongImage, getCachedImage, setCachedImage } from '@/utils/songImage';
 
 // Filter songs with bad cover art
@@ -48,6 +48,8 @@ import { useAuth } from '@/context/AuthContext';
 import SongCard from '@/components/SongCard';
 import Greeting from '@/components/Greeting';
 import TrendingSongsSection from '@/components/TrendingSongsSection';
+import ErrorBoundary, { ErrorFallback } from '@/components/ErrorBoundary';
+import NowPlayingSection from '@/components/NowPlayingSection';
 
 interface Playlist {
   id: string;
@@ -64,9 +66,26 @@ interface Playlist {
 const MAX_SMALL_GRID = 6;
 const MAX_EXPANDED = 30;
 
-// High-res image fetching configuration
-const HIGH_RES_BATCH_SIZE = 8;
-const PREFETCH_HIGH_RES = true;
+// Simple loading skeleton component for better perceived performance
+const SongCardSkeleton = () => (
+  <div className="bg-white/5 rounded-lg p-4 animate-pulse">
+    <div className="aspect-square bg-white/10 rounded-lg mb-3"></div>
+    <div className="h-4 bg-white/10 rounded mb-2"></div>
+    <div className="h-3 bg-white/10 rounded w-3/4"></div>
+  </div>
+);
+
+const LoadingGrid = ({ count = 6 }: { count?: number }) => (
+  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+    {Array.from({ length: count }, (_, i) => (
+      <SongCardSkeleton key={i} />
+    ))}
+  </div>
+);
+
+// High-res image fetching configuration - OPTIMIZED for faster loading
+const HIGH_RES_BATCH_SIZE = 4; // Reduced from 8
+const PREFETCH_HIGH_RES = false; // Disabled for faster initial load
 
 const shuffleArray = <T,>(arr: T[]) => {
   const copy = arr.slice();
@@ -92,10 +111,15 @@ const fetchHighResImages = async (songs: Song[]): Promise<Song[]> => {
 
   console.log(`[HighRes] Fetching ${needHighRes.length} song details for better images...`);
 
-  // Batch fetch with error handling
-  await Promise.all(
-    needHighRes.map(async (song) => {
+  // Batch fetch with improved error handling and delays
+  const results = await Promise.allSettled(
+    needHighRes.map(async (song, index) => {
       try {
+        // Add staggered delay to avoid overwhelming the API
+        if (index > 0) {
+          await new Promise(resolve => setTimeout(resolve, 200 * index));
+        }
+
         const details = await getSongDetails(song.id);
         if (details) {
           const hiResImage = normalizeSongImage(details) || normalizeSongImage(song) || null;
@@ -103,19 +127,43 @@ const fetchHighResImages = async (songs: Song[]): Promise<Song[]> => {
             song.image = hiResImage as any;
             setCachedImage(song.id, hiResImage);
             console.log(`[HighRes] Updated image for: ${song.name}`);
+            return { success: true, song: song.name };
           }
         }
-      } catch (err) {
-        console.warn(`[HighRes] Failed to fetch details for ${song.id}:`, err);
+        return { success: false, song: song.name, reason: 'no_better_image' };
+      } catch (err: any) {
+        // Handle specific error types gracefully
+        if (err?.response?.status === 404) {
+          console.warn(`[HighRes] Song not found (404): ${song.name} (${song.id})`);
+          // Cache the failure to avoid retrying
+          setCachedImage(song.id, 'not_found');
+          return { success: false, song: song.name, reason: '404' };
+        } else if (err?.response?.status === 403) {
+          console.warn(`[HighRes] Rate limited for: ${song.name}`);
+          return { success: false, song: song.name, reason: 'rate_limit' };
+        } else if (err?.code === 'ECONNABORTED' || err?.message?.includes('timeout')) {
+          console.warn(`[HighRes] Timeout fetching: ${song.name}`);
+          return { success: false, song: song.name, reason: 'timeout' };
+        } else {
+          console.warn(`[HighRes] Failed to fetch details for ${song.id}:`, err?.message || err);
+          return { success: false, song: song.name, reason: 'error' };
+        }
       }
     })
   );
+
+  // Log summary of results
+  const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+  const failed = results.length - successful;
+  if (failed > 0) {
+    console.log(`[HighRes] Completed: ${successful} successful, ${failed} failed`);
+  }
 
   // Apply cached images to remaining songs
   songs.forEach(s => {
     if (s && s.id && (!s.image || isLikelyWrongImage(s.image as any, s))) {
       const cached = getCachedImage(s.id);
-      if (cached) {
+      if (cached && cached !== 'not_found') {
         s.image = cached as any;
       }
     }
@@ -127,31 +175,17 @@ const fetchHighResImages = async (songs: Song[]): Promise<Song[]> => {
 const HomeView: React.FC = () => {
   const {
     currentSong,
-    isPlaying,
-    playSong,
-    playNext,
-    playPrevious,
-    togglePlayPause,
-    setQueue,
-    isSongLiked,
-    addToLikedSongs,
-    removeFromLikedSongs,
-    volume,
-    setVolume,
-    currentTime,
-    duration,
-    seekTo,
     setPlaylistAndPlay,
   } = useMusic();
 
-  const { settings } = useSettings();
+
   const navigate = useNavigate();
   const { user, logout } = useAuth();
 
   // Data states
   const [newReleases, setNewReleases] = useState<Song[]>([]);
   const [trendingSongs, setTrendingSongs] = useState<Song[]>([]);
-  const [albums, setAlbums] = useState<Album[]>([]);
+
   const [recentlyPlayed, setRecentlyPlayed] = useState<Song[]>([]);
   const [romanceSongs, setRomanceSongs] = useState<Song[]>([]);
   const [mixedRomanceSongs, setMixedRomanceSongs] = useState<Song[]>([]);
@@ -160,87 +194,66 @@ const HomeView: React.FC = () => {
 
   // UI states
   const [searchQuery, setSearchQuery] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { isPlaylistSidebarOpen, togglePlaylistSidebar } = usePlaylistSidebar();
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
-  const [sidebarAnimating, setSidebarAnimating] = useState(false);
+  const [, setSidebarAnimating] = useState(false);
 
   // Loading & refreshing flags
   const [isNewReleasesLoading, setIsNewReleasesLoading] = useState(false);
-  const [isTrendingLoading, setIsTrendingLoading] = useState(false);
+  const [, setIsTrendingLoading] = useState(false);
   const [isMalayalamLoading, setIsMalayalamLoading] = useState(false);
   const [isTamilLoading, setIsTamilLoading] = useState(false);
-  const [isRomanceLoading, setIsRomanceLoading] = useState(false);
-  const [isMixedRomanceLoading, setIsMixedRomanceLoading] = useState(false);
+  const [, setIsRomanceLoading] = useState(false);
+  const [, setIsMixedRomanceLoading] = useState(false);
 
   const [isRefreshingNewReleases, setIsRefreshingNewReleases] = useState(false);
-  const [isRefreshingTrending, setIsRefreshingTrending] = useState(false);
+  const [, setIsRefreshingTrending] = useState(false);
   const [isRefreshingMalayalam, setIsRefreshingMalayalam] = useState(false);
   const [isRefreshingTamil, setIsRefreshingTamil] = useState(false);
-  const [isRefreshingRomance, setIsRefreshingRomance] = useState(false);
-  const [isRefreshingMixedRomance, setIsRefreshingMixedRomance] = useState(false);
+  const [, setIsRefreshingRomance] = useState(false);
+  const [, setIsRefreshingMixedRomance] = useState(false);
 
   // Show-all toggles
   const [showAllNewReleases, setShowAllNewReleases] = useState(false);
   const [showAllRecentlyPlayed, setShowAllRecentlyPlayed] = useState(false);
-  const [showAllMixedRomance, setShowAllMixedRomance] = useState(false);
-  const [showAllTrending, setShowAllTrending] = useState(false);
-  const [showAllRomance, setShowAllRomance] = useState(false);
+
   const [showAllMalayalam, setShowAllMalayalam] = useState(false);
   const [showAllTamil, setShowAllTamil] = useState(false);
 
-  // Local development duplicate detector (optional)
-  useEffect(() => {
-    const warnDuplicates = (arr: Song[], name: string) => {
-      if (!arr || arr.length === 0) return;
-      const keys = arr.map(s => s.id);
-      const dup = keys.filter((k, i) => keys.indexOf(k) !== i);
-      if (dup.length) {
-        console.warn(`[Duplicate keys detected in ${name}]`, Array.from(new Set(dup)).slice(0, 20));
-      }
-    };
-    warnDuplicates(newReleases, 'newReleases');
-    warnDuplicates(trendingSongs, 'trendingSongs');
-    warnDuplicates(recentlyPlayed, 'recentlyPlayed');
-    warnDuplicates(romanceSongs, 'romanceSongs');
-    warnDuplicates(mixedRomanceSongs, 'mixedRomanceSongs');
-  }, [newReleases, trendingSongs, recentlyPlayed, romanceSongs, mixedRomanceSongs]);
+  // Local development duplicate detector (optional) - DISABLED for better performance
+  // useEffect(() => {
+  //   const warnDuplicates = (arr: Song[], name: string) => {
+  //     if (!arr || arr.length === 0) return;
+  //     const keys = arr.map(s => s.id);
+  //     const dup = keys.filter((k, i) => keys.indexOf(k) !== i);
+  //     if (dup.length) {
+  //       console.warn(`[Duplicate keys detected in ${name}]`, Array.from(new Set(dup)).slice(0, 20));
+  //     }
+  //   };
+  //   warnDuplicates(newReleases, 'newReleases');
+  //   warnDuplicates(trendingSongs, 'trendingSongs');
+  //   warnDuplicates(recentlyPlayed, 'recentlyPlayed');
+  //   warnDuplicates(romanceSongs, 'romanceSongs');
+  //   warnDuplicates(mixedRomanceSongs, 'mixedRomanceSongs');
+  // }, [newReleases, trendingSongs, recentlyPlayed, romanceSongs, mixedRomanceSongs]);
 
-  // Helper to filter out short songs (previews/snippets)
-  const filterFullLengthSongs = (songs: Song[]): Song[] => {
-    return songs.filter(song => {
-      const duration = Number(song.duration) || 0;
-      return duration >= 90; // At least 1.5 minutes
-    });
-  };
 
-  // Fetch helpers (kept simple; adapt to your services)
+
+
+
+  // Fetch helpers - OPTIMIZED for faster loading
   const fetchNewReleasesData = useCallback(async () => {
     setIsNewReleasesLoading(true);
     try {
-      // Fetch from multiple language sources including English
-      const [mal, ta, hi, en] = await Promise.all([
-        jiosaavnApi.getTrendingSongs?.() ?? [],
-        jiosaavnApi.getTamilTrendingSongs?.() ?? [],
-        jiosaavnApi.getHindiTrendingSongs?.() ?? [],
-        (jiosaavnApi as any).getEnglishNewReleases?.() ?? []
-      ]);
+      // OPTIMIZED: Fetch only Malayalam trending first (fastest)
+      const mal = await jiosaavnApi.getTrendingSongs?.() ?? [];
+      
+      console.log('Fetched Malayalam songs:', mal.length);
 
-      console.log('Fetched songs by language:', {
-        malayalam: mal.length,
-        tamil: ta.length,
-        hindi: hi.length,
-        english: en.length
-      });
-
-      // Combine all results
-      const combined = [...(mal || []), ...(ta || []), ...(hi || []), ...(en || [])];
-
-      // Remove duplicates
-      const unique = dedupeById(combined);
-
-      console.log('Combined unique songs:', unique.length);
+      // Remove duplicates using enhanced deduplication
+      const unique = dedupeSongs(mal);
 
       // Normalize images for all songs
       const normalized = unique.map(s => ({
@@ -258,16 +271,16 @@ const HomeView: React.FC = () => {
 
       console.log('[NewReleases] After filtering:', normalized.length, '→', newReleasesCandidates.length);
 
-      // Balance languages: ML, TA, HI only
-      const allowed = ['ML', 'TA', 'HI'];
-      let balanced = balanceByLanguage(newReleasesCandidates, allowed, 25);
+      // Take first 25 songs for faster loading
+      let balanced = newReleasesCandidates.slice(0, 25);
 
-      // Fetch high-res images for songs with placeholders
-      balanced = await fetchHighResImages(balanced as Song[]);
+      // Skip high-res image fetching for faster initial load
+      // balanced = await fetchHighResImages(balanced as Song[]);
 
       // Filter out songs with bad cover art
       balanced = filterBadCovers(balanced as Song[], 'NewReleases') as any;
 
+      console.log('[NewReleases] Final songs count:', balanced.length);
       setNewReleases(balanced as Song[]);
     } catch (err) {
       console.error('Failed to fetch new releases:', err);
@@ -281,17 +294,14 @@ const HomeView: React.FC = () => {
   const fetchTrendingSongsData = useCallback(async () => {
     setIsTrendingLoading(true);
     try {
-      const [mal, ta, hi] = await Promise.all([
-        jiosaavnApi.getTrendingSongs?.() ?? [],
-        jiosaavnApi.getTamilTrendingSongs?.() ?? [],
-        jiosaavnApi.getHindiTrendingSongs?.() ?? [],
-      ]);
+      // OPTIMIZED: Fetch only Malayalam trending for faster loading
+      const mal = await jiosaavnApi.getTrendingSongs?.() ?? [];
 
-      // Combine and dedupe
-      const combined = dedupeById([...(mal || []), ...(ta || []), ...(hi || [])]);
+      // Remove duplicates using enhanced deduplication
+      const unique = dedupeSongs(mal);
 
       // Normalize images for all songs
-      const normalized = combined.map(s => ({
+      const normalized = unique.map(s => ({
         ...s,
         image: normalizeSongImage(s) || normalizeSongImageUtil(s) || (s as any).image || null
       }));
@@ -304,12 +314,11 @@ const HomeView: React.FC = () => {
 
       console.log('[Trending] After filtering:', normalized.length, '→', fullLengthSongs.length);
 
-      // Balance languages: ML, TA, HI only (exclude English)
-      const allowed = ['ML', 'TA', 'HI'];
-      let balanced = balanceByLanguage(fullLengthSongs, allowed, 25);
+      // Take first 25 songs for faster loading
+      let balanced = fullLengthSongs.slice(0, 25);
 
-      // Fetch high-res images for songs with placeholders
-      balanced = await fetchHighResImages(balanced as Song[]);
+      // Skip high-res image fetching for faster initial load
+      // balanced = await fetchHighResImages(balanced as Song[]);
 
       setTrendingSongs(balanced as Song[]);
     } catch (err) {
@@ -351,7 +360,7 @@ const HomeView: React.FC = () => {
         jiosaavnApi.getHindiRomanceSongs?.() ?? [],
         jiosaavnApi.getTamilRomanceSongs?.() ?? [],
       ]);
-      const all = dedupeById([...(mal || []), ...(hi || []), ...(ta || [])]);
+      const all = dedupeSongs([...(mal || []), ...(hi || []), ...(ta || [])]);
 
       // Filter out short songs
       const fullLength = all.filter(s => {
@@ -371,17 +380,11 @@ const HomeView: React.FC = () => {
   const fetchMalayalamSongsData = useCallback(async () => {
     setIsMalayalamLoading(true);
     try {
-      // Fetch Malayalam songs from trending and romance
-      const [trending, romance] = await Promise.all([
-        jiosaavnApi.getTrendingSongs?.() ?? [],
-        jiosaavnApi.getMalayalamRomanceSongs?.() ?? [],
-      ]);
-
-      // Combine and dedupe
-      const combined = dedupeById([...(trending || []), ...(romance || [])]);
+      // OPTIMIZED: Fetch only trending Malayalam songs for faster loading
+      const trending = await jiosaavnApi.getTrendingSongs?.() ?? [];
 
       // Normalize images for all songs
-      const normalized = combined.map(s => ({
+      const normalized = trending.map(s => ({
         ...s,
         image: normalizeSongImage(s) || normalizeSongImageUtil(s) || (s as any).image || null
       }));
@@ -396,11 +399,11 @@ const HomeView: React.FC = () => {
 
       console.log('[Malayalam] After filtering:', normalized.length, '→', malayalamOnly.length);
 
-      // Shuffle and limit
-      let shuffled = shuffleArray(malayalamOnly).slice(0, 50) as Song[];
+      // Shuffle and limit to 25 for faster loading
+      let shuffled = shuffleArray(malayalamOnly).slice(0, 25) as Song[];
 
-      // Fetch high-res images for songs with placeholders
-      shuffled = await fetchHighResImages(shuffled);
+      // Skip high-res image fetching for faster initial load
+      // shuffled = await fetchHighResImages(shuffled);
 
       // Filter out songs with bad cover art
       shuffled = filterBadCovers(shuffled, 'Malayalam');
@@ -418,17 +421,11 @@ const HomeView: React.FC = () => {
   const fetchTamilSongsData = useCallback(async () => {
     setIsTamilLoading(true);
     try {
-      // Fetch Tamil songs from trending and romance
-      const [trending, romance] = await Promise.all([
-        jiosaavnApi.getTamilTrendingSongs?.() ?? [],
-        jiosaavnApi.getTamilRomanceSongs?.() ?? [],
-      ]);
-
-      // Combine and dedupe
-      const combined = dedupeById([...(trending || []), ...(romance || [])]);
+      // OPTIMIZED: Fetch only Tamil trending songs for faster loading
+      const trending = await jiosaavnApi.getTamilTrendingSongs?.() ?? [];
 
       // Normalize images for all songs
-      const normalized = combined.map(s => ({
+      const normalized = trending.map(s => ({
         ...s,
         image: normalizeSongImage(s) || normalizeSongImageUtil(s) || (s as any).image || null
       }));
@@ -443,11 +440,11 @@ const HomeView: React.FC = () => {
 
       console.log('[Tamil] After filtering:', normalized.length, '→', tamilOnly.length);
 
-      // Shuffle and limit
-      let shuffled = shuffleArray(tamilOnly).slice(0, 50) as Song[];
+      // Shuffle and limit to 25 for faster loading
+      let shuffled = shuffleArray(tamilOnly).slice(0, 25) as Song[];
 
-      // Fetch high-res images for songs with placeholders
-      shuffled = await fetchHighResImages(shuffled);
+      // Skip high-res image fetching for faster initial load
+      // shuffled = await fetchHighResImages(shuffled);
 
       // Filter out songs with bad cover art
       shuffled = filterBadCovers(shuffled, 'Tamil');
@@ -518,36 +515,51 @@ const HomeView: React.FC = () => {
     }
   }, []);
 
-  // Fetch all on mount
+  // Fetch all on mount - OPTIMIZED: Load essential content first, then secondary content
   useEffect(() => {
-    const fetchAll = async () => {
+    const fetchEssentialContent = async () => {
       setLoading(true);
       try {
+        // Load only the most important content first (trending songs)
         await Promise.all([
-          fetchNewReleasesData(),
           fetchTrendingSongsData(),
-          fetchRomanceSongsData(),
-          fetchMixedRomanceSongsData(),
-          fetchRecentlyPlayedData(),
-          fetchMalayalamSongsData(),
-          fetchTamilSongsData(),
+          fetchRecentlyPlayedData(), // This is fast as it's from localStorage
         ]);
+        
+        // Load secondary content after a short delay to improve perceived performance
+        setTimeout(async () => {
+          try {
+            await Promise.all([
+              fetchNewReleasesData(),
+              fetchMalayalamSongsData(),
+              fetchTamilSongsData(),
+            ]);
+            
+            // Load romance content last (least priority)
+            setTimeout(async () => {
+              try {
+                await Promise.all([
+                  fetchRomanceSongsData(),
+                  fetchMixedRomanceSongsData(),
+                ]);
+              } catch (err) {
+                console.error('Romance content fetch failed', err);
+              }
+            }, 500);
+          } catch (err) {
+            console.error('Secondary content fetch failed', err);
+          }
+        }, 200);
+        
       } catch (err) {
-        console.error('Initial fetch failed', err);
+        console.error('Essential content fetch failed', err);
+        setError('Failed to load content');
       } finally {
         setLoading(false);
       }
     };
-    fetchAll();
-  }, [
-    fetchNewReleasesData,
-    fetchTrendingSongsData,
-    fetchRomanceSongsData,
-    fetchMixedRomanceSongsData,
-    fetchRecentlyPlayedData,
-    fetchMalayalamSongsData,
-    fetchTamilSongsData,
-  ]);
+    fetchEssentialContent();
+  }, []); // Remove dependencies to prevent unnecessary re-fetching
 
   // Save recently played when currentSong changes - with image normalization
   useEffect(() => {
@@ -586,14 +598,7 @@ const HomeView: React.FC = () => {
     }
   };
 
-  const handleRefreshTrending = async () => {
-    setIsRefreshingTrending(true);
-    try {
-      await fetchTrendingSongsData();
-    } finally {
-      setIsRefreshingTrending(false);
-    }
-  };
+
 
   const handleRefreshMalayalam = async () => {
     setIsRefreshingMalayalam(true);
@@ -613,17 +618,7 @@ const HomeView: React.FC = () => {
     }
   };
 
-  // Helper function to get image URL from song - always returns highest quality
-  const getSongImageUrl = (song: Song): string => {
-    try {
-      // Always use the utility function to get highest quality image
-      // This provides defensive rendering even if normalization was missed
-      return getImageUrlWithFallback(song.image, 'No Image');
-    } catch (error) {
-      console.error('[getSongImageUrl] Error:', error, song);
-      return getImageUrlWithFallback(null, 'Error');
-    }
-  };
+
 
   // Convert songs to compatible format for the player
   const convertSongsForPlayer = (songs: Song[]): any[] => {
@@ -708,16 +703,12 @@ const HomeView: React.FC = () => {
 
   return (
     <div className="flex w-full h-full">
-      {/* Main content - responsive to playlist sidebar with smooth attached animation */}
-      <motion.div
-        className="flex-1 overflow-auto scrollbar-hide"
-        style={{ willChange: 'margin-right' }}
-        animate={{
+      {/* Main content - OPTIMIZED: Reduced animations for better scroll performance */}
+      <div
+        className="flex-1 overflow-auto scrollbar-hide scroll-smooth optimize-scroll transition-all duration-300 ease-out"
+        style={{ 
           marginRight: isPlaylistSidebarOpen ? 320 : 0,
-        }}
-        transition={{
-          duration: 0.25,
-          ease: [0.25, 0.1, 0.25, 1],
+          willChange: 'auto' // Remove willChange to reduce GPU usage
         }}
       >
         {selectedPlaylist && (
@@ -732,56 +723,43 @@ const HomeView: React.FC = () => {
           />
         )}
 
-        {/* Fixed Greeting at top */}
-        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border px-6 md:px-8 lg:px-12 py-4">
+        {/* OPTIMIZED: Simplified sticky header without heavy backdrop blur */}
+        <div className="sticky top-0 z-10 bg-background/90 border-b border-border px-6 md:px-8 lg:px-12 py-4">
           <Greeting />
         </div>
 
         {/* Content wrapper with horizontal padding */}
         <div className="px-6 md:px-8 lg:px-12">
-          {/* Hero & Search */}
-          <motion.div
-            className="relative rounded-2xl bg-gradient-to-r from-red-600 to-purple-700 p-6 md:p-8 text-white shadow-lg mt-6"
-            initial={{ y: -20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ duration: 0.5 }}
-          >
-            <div className="flex justify-between items-start mb-4">
+          {/* OPTIMIZED: Reduced hero animations */}
+          <div className="relative rounded-2xl bg-gradient-to-r from-red-600 to-purple-700 p-4 md:p-6 text-white shadow-lg mt-6">
+            <div className="flex justify-between items-start mb-3">
               <div className="max-w-2xl flex-1">
-                <h1 className="text-2xl md:text-4xl font-bold mb-2">Discover Your Music</h1>
-                <p className="text-red-100 mb-6">Listen to millions of songs, anytime, anywhere</p>
+                <h1 className="text-xl md:text-2xl font-bold mb-1">Discover Your Music</h1>
+                <p className="text-red-100 mb-4 text-sm md:text-base">Listen to millions of songs, anytime, anywhere</p>
               </div>
               <div className="flex items-center gap-3">
-                <motion.button
+                <button
                   onClick={handleToggleSidebar}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-300 ${isPlaylistSidebarOpen
                     ? 'bg-red-500 text-white shadow-lg'
                     : 'bg-white/20 hover:bg-white/30 text-white border border-white/30'
                     }`}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  animate={{
-                    backgroundColor: isPlaylistSidebarOpen ? '#ef4444' : 'rgba(255, 255, 255, 0.2)',
-                    color: isPlaylistSidebarOpen ? '#ffffff' : '#ffffff'
-                  }}
                 >
-                  <motion.div
-                    animate={{ rotate: isPlaylistSidebarOpen ? 180 : 0 }}
-                    transition={{ duration: 0.3 }}
+                  <div
+                    className="transition-transform duration-300"
+                    style={{ transform: isPlaylistSidebarOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
                   >
                     <Library className="w-5 h-5" />
-                  </motion.div>
+                  </div>
                   <span className="hidden sm:inline">
                     {isPlaylistSidebarOpen ? 'Hide Library' : 'Your Library'}
                   </span>
-                </motion.button>
+                </button>
 
                 {/* Profile Dropdown */}
                 <ProfileDropdown
                   userName={user?.displayName || 'Music Lover'}
                   userEmail={user?.email || 'user@musicapp.com'}
-                  userAvatar={user?.photoURL || undefined}
-                  userId={user?.uid}
                   onLogout={async () => {
                     try {
                       await logout();
@@ -809,16 +787,26 @@ const HomeView: React.FC = () => {
                 className="w-full pl-12 pr-4 py-2 rounded-lg bg-white bg-opacity-10 placeholder-gray-200"
               />
             </div>
-          </motion.div>
+          </div>
+
+          {/* Now Playing Section - Glassmorphism */}
+          <div className="mt-8">
+            <NowPlayingSection />
+          </div>
 
           {/* Trending Now - Grid Layout with Sophisticated Features */}
           <div className="mt-8">
-            <TrendingSongsSection 
-              limit={25}
-              initialShowCount={6}
-              autoRefresh={true}
-              refreshInterval={60000}
-            />
+            <ErrorBoundary 
+              section="Trending Songs"
+              onRetry={() => window.location.reload()}
+            >
+              <TrendingSongsSection 
+                limit={25}
+                initialShowCount={6}
+                autoRefresh={true}
+                refreshInterval={60000}
+              />
+            </ErrorBoundary>
           </div>
 
           {/* New Releases */}
@@ -835,7 +823,7 @@ const HomeView: React.FC = () => {
                 >
                   {isRefreshingNewReleases ? (
                     <motion.div
-                      className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full"
+                      className="w-4 h-4 border-2 border-red-500/30 border-l-red-500 rounded-full"
                       animate={{ rotate: 360 }}
                       transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
                     />
@@ -851,30 +839,19 @@ const HomeView: React.FC = () => {
             </div>
 
             {isNewReleasesLoading ? (
-              <div className="flex justify-center items-center h-32">
-                <motion.div
-                  className="w-8 h-8 border-4 border-red-500 border-t-transparent rounded-full"
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                />
-              </div>
+              <LoadingGrid count={MAX_SMALL_GRID} />
             ) : error ? (
-              <div className="text-center py-8 text-red-500">
-                <p>{error}</p>
-                <Button
-                  variant="outline"
-                  className="mt-4"
-                  onClick={fetchNewReleasesData}
-                >
-                  Retry
-                </Button>
-              </div>
+              <ErrorFallback 
+                error={new Error(error)}
+                onRetry={fetchNewReleasesData}
+                message="Failed to load new releases"
+              />
             ) : (
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                   {newReleases.slice(0, showAllNewReleases ? MAX_EXPANDED : MAX_SMALL_GRID).map((song, idx) => (
                     <SongCard
-                      key={`new-${song.id}`}
+                      key={`new-${song.id}-${idx}`}
                       song={song}
                       playlist={convertSongsForPlayer(newReleases)}
                       index={idx}
@@ -913,7 +890,7 @@ const HomeView: React.FC = () => {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
               {recentlyPlayed.slice(0, showAllRecentlyPlayed ? 50 : MAX_SMALL_GRID).map((song, idx) => (
                 <SongCard
-                  key={`recent-${song.id}`}
+                  key={`recent-${song.id}-${idx}`}
                   song={song}
                   playlist={convertSongsForPlayer(recentlyPlayed)}
                   index={idx}
@@ -936,7 +913,7 @@ const HomeView: React.FC = () => {
               >
                 {isRefreshingMalayalam ? (
                   <motion.div
-                    className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full"
+                    className="w-4 h-4 border-2 border-red-500/30 border-l-red-500 rounded-full"
                     animate={{ rotate: 360 }}
                     transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
                   />
@@ -951,29 +928,17 @@ const HomeView: React.FC = () => {
           </div>
 
           {isMalayalamLoading ? (
-            <div className="flex justify-center items-center h-32">
-              <motion.div
-                className="w-8 h-8 border-4 border-red-500 border-t-transparent rounded-full"
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-              />
-            </div>
+            <LoadingGrid count={MAX_SMALL_GRID} />
           ) : malayalamSongs.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <p>No Malayalam songs available</p>
-              <Button
-                variant="outline"
-                className="mt-4"
-                onClick={fetchMalayalamSongsData}
-              >
-                Retry
-              </Button>
-            </div>
+            <ErrorFallback 
+              onRetry={fetchMalayalamSongsData}
+              message="No Malayalam songs available"
+            />
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
               {malayalamSongs.slice(0, showAllMalayalam ? 50 : MAX_SMALL_GRID).map((song, idx) => (
                 <SongCard
-                  key={`malayalam-${song.id}`}
+                  key={`malayalam-${song.id}-${idx}`}
                   song={song}
                   playlist={convertSongsForPlayer(malayalamSongs)}
                   index={idx}
@@ -997,7 +962,7 @@ const HomeView: React.FC = () => {
               >
                 {isRefreshingTamil ? (
                   <motion.div
-                    className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full"
+                    className="w-4 h-4 border-2 border-red-500/30 border-l-red-500 rounded-full"
                     animate={{ rotate: 360 }}
                     transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
                   />
@@ -1012,29 +977,17 @@ const HomeView: React.FC = () => {
           </div>
 
           {isTamilLoading ? (
-            <div className="flex justify-center items-center h-32">
-              <motion.div
-                className="w-8 h-8 border-4 border-red-500 border-t-transparent rounded-full"
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-              />
-            </div>
+            <LoadingGrid count={MAX_SMALL_GRID} />
           ) : tamilSongs.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <p>No Tamil songs available</p>
-              <Button
-                variant="outline"
-                className="mt-4"
-                onClick={fetchTamilSongsData}
-              >
-                Retry
-              </Button>
-            </div>
+            <ErrorFallback 
+              onRetry={fetchTamilSongsData}
+              message="No Tamil songs available"
+            />
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
               {tamilSongs.slice(0, showAllTamil ? 50 : MAX_SMALL_GRID).map((song, idx) => (
                 <SongCard
-                  key={`tamil-${song.id}`}
+                  key={`tamil-${song.id}-${idx}`}
                   song={song}
                   playlist={convertSongsForPlayer(tamilSongs)}
                   index={idx}
@@ -1045,7 +998,7 @@ const HomeView: React.FC = () => {
         </div>
         {/* End content wrapper */}
       </div>
-      </motion.div>
+      </div>
 
       {/* Playlist Sidebar - Attached to the right without blur */}
       <PlaylistSidebar

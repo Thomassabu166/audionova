@@ -10,7 +10,6 @@ interface PlaylistSongItemProps {
   song: Song;
   index: number;
   isCurrent: boolean;
-  playlistId: string;
   playing: boolean;
   onPlay: (song: Song) => void;
   onTogglePlayPause: () => void;
@@ -23,7 +22,6 @@ const PlaylistSongItem: React.FC<PlaylistSongItemProps> = ({
   song,
   index,
   isCurrent,
-  playlistId,
   playing,
   onPlay,
   onTogglePlayPause,
@@ -95,7 +93,6 @@ const PlaylistSongItem: React.FC<PlaylistSongItemProps> = ({
   
   return (
     <div 
-      key={`playlist-${playlistId}-${song.id || index}`}
       className={`grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4 px-4 py-3 hover:bg-accent transition-colors group ${
         isCurrent ? 'bg-red-500/10 border-l-4 border-red-500' : ''
       }`}
@@ -128,7 +125,9 @@ const PlaylistSongItem: React.FC<PlaylistSongItemProps> = ({
           )}
           <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 transition-opacity">
             <Button 
-              variant="playlistCard"
+              variant="ghost"
+              size="sm"
+              className="w-8 h-8 p-0 bg-white/20 hover:bg-white/30"
               onClick={(e) => {
                 e.stopPropagation();
                 if (playing) {

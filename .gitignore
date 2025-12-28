@@ -22,6 +22,11 @@ yarn.lock
 backend/.env
 backend/.env.*
 
+# Firebase service account (CRITICAL - NEVER COMMIT)
+backend/firebase-service-account.json
+firebase-service-account.json
+**/firebase-service-account.json
+
 # Database
 *.db
 *.sqlite
@@ -114,6 +119,12 @@ private/
 *.pem
 *.key
 *.crt
+*.p12
+*.pfx
+*.jks
+*.keystore
+config/credentials.json
+config/service-account.json
 
 # Testing
 .coverage

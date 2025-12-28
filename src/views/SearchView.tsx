@@ -120,9 +120,7 @@ const SearchView: React.FC<SearchViewProps> = ({ onOpenExpandedPlayer }) => {
 
       return {
         ...song,
-        image: Array.isArray((song as any).image) ?
-          (song as any).image.map((img: any) => typeof img === 'string' ? img : img.link) :
-          [(song as any).image || ''],
+        image: (song as any).image, // Preserve original image structure with quality info
         url: audioUrl,
         duration: (song as any).duration || 0
       };

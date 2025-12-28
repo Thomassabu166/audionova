@@ -1,9 +1,9 @@
-import React, { useRef, useCallback, useState } from 'react';
+import React, { useRef, useCallback, useState, memo } from 'react';
 import { motion, type Variants } from 'framer-motion';
 import { Play, Pause, Heart } from 'lucide-react';
-import { getHighestQualityImage } from '@/services/jiosaavnApi';
 import { useMusic } from '@/context/MusicContext';
 import { isNewSong } from '@/utils/isNewSong';
+import { getHighestQualityImage } from '@/services/jiosaavnApi';
 import LanguageBadge from './LanguageBadge';
 
 interface SongCardProps {
@@ -15,17 +15,18 @@ interface SongCardProps {
   showLanguageBadge?: boolean;
 }
 
+// OPTIMIZED: Simplified animations for better scroll performance
 const sheenVariants = {
   rest: { x: '-110%' },
   press: { x: '120%' },
 };
 
 const playBtnVariants: Variants = {
-  hidden: { opacity: 0, scale: 0.8 },
+  hidden: { opacity: 0, scale: 0.9 },
   visible: {
     opacity: 1,
     scale: 1,
-    transition: { type: 'spring' as const, stiffness: 700, damping: 28 }
+    transition: { type: 'tween', duration: 0.2 } // Simplified animation
   },
   active: {
     opacity: 1,
@@ -39,7 +40,8 @@ const getPlaceholderImage = (text: string) => {
   return `data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="300" height="300"%3E%3Crect fill="%23a855f7" width="300" height="300"/%3E%3Ctext fill="%23ffffff" font-family="Arial" font-size="24" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3E${encodeURIComponent(text)}%3C/text%3E%3C/svg%3E`;
 };
 
-export default function SongCard({ song, playlist, index, onCardClick, showNewBadge = false, showLanguageBadge = true }: SongCardProps) {
+// OPTIMIZED: Memoized component to prevent unnecessary re-renders during scroll
+const SongCard = memo(function SongCard({ song, playlist, index, onCardClick, showNewBadge = false, showLanguageBadge = true }: SongCardProps) {
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [isHovered, setIsHovered] = useState(false);
 
@@ -58,13 +60,23 @@ export default function SongCard({ song, playlist, index, onCardClick, showNewBa
   const isCurrent = currentSong?.id === song.id;
   const playing = isCurrent && isPlaying;
 
-  // Get image URL
+  // Get image URL with better handling for JioSaavn images
   const getImageUrl = () => {
-    if (!song.image) {
-      return getPlaceholderImage(song.name || 'No Image');
+    // Use the original getHighestQualityImage for song cards to maintain quality
+    if (song.image && Array.isArray(song.image)) {
+      const highQualityUrl = getHighestQualityImage(song.image);
+      if (highQualityUrl) {
+        return highQualityUrl;
+      }
     }
-    const url = getHighestQualityImage(song.image);
-    return url || getPlaceholderImage(song.name || 'No Image');
+    
+    // Fallback to string image
+    if (typeof song.image === 'string' && song.image.trim()) {
+      return song.image;
+    }
+    
+    // If no valid URL found, use placeholder
+    return getPlaceholderImage(song.name || 'No Image');
   };
 
   const imageSrc = getImageUrl();
@@ -132,11 +144,12 @@ export default function SongCard({ song, playlist, index, onCardClick, showNewBa
       onClick={handleCardClick}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      whileHover={{ y: -5 }}
-      whileTap={{ scale: 0.98 }}
-      transition={{ duration: 0.3 }}
+      // OPTIMIZED: Reduced animations for better scroll performance
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      whileHover={{ y: -2 }} // Reduced hover lift
+      whileTap={{ scale: 0.99 }} // Reduced tap scale
+      transition={{ duration: 0.2 }} // Faster transitions
       aria-label={`${song.name} - ${song.primaryArtists || 'artist'}`}
     >
       <div className="relative w-full aspect-square overflow-hidden">
@@ -153,6 +166,49 @@ export default function SongCard({ song, playlist, index, onCardClick, showNewBa
           transition={{ duration: 0.2 }}
           onError={(e) => {
             const target = e.target as HTMLImageElement;
+            console.log('Image failed to load:', target.src);
+            
+            // Try to use a different image quality if available
+            if (song.image && Array.isArray(song.image) && song.image.length > 1) {
+              const currentSrc = target.src;
+              
+              // Find the next best image that hasn't been tried
+              const alternativeImage = song.image.find((img: any) => {
+                const imgUrl = img.link || img;
+                return imgUrl && 
+                       imgUrl !== currentSrc && 
+                       !imgUrl.toLowerCase().includes('placeholder') &&
+                       imgUrl.length > 30; // Ensure it's a valid URL
+              });
+              
+              if (alternativeImage) {
+                const newUrl = alternativeImage.link || alternativeImage;
+                console.log('Trying alternative image:', newUrl);
+                target.src = newUrl;
+                return;
+              }
+            }
+            
+            // If it's a JioSaavn URL that failed, try a different quality
+            if (target.src.includes('c.saavncdn.com') || target.src.includes('jiosaavn.com')) {
+              const originalUrl = target.src;
+              let fallbackUrl = originalUrl;
+              
+              // Try different quality levels
+              if (originalUrl.includes('500x500')) {
+                fallbackUrl = originalUrl.replace(/500x500/g, '300x300');
+              } else if (originalUrl.includes('300x300')) {
+                fallbackUrl = originalUrl.replace(/300x300/g, '150x150');
+              }
+              
+              if (fallbackUrl !== originalUrl) {
+                console.log('Trying lower quality image:', fallbackUrl);
+                target.src = fallbackUrl;
+                return;
+              }
+            }
+            
+            // Final fallback to placeholder
             target.src = getPlaceholderImage(song.name || 'Error');
           }}
         />
@@ -177,7 +233,7 @@ export default function SongCard({ song, playlist, index, onCardClick, showNewBa
           />
         </motion.div>
 
-        {/* Play/Pause button (center) */}
+        {/* Play/Pause button (center) - only show on hover or when playing */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <motion.button
             type="button"
@@ -192,7 +248,7 @@ export default function SongCard({ song, playlist, index, onCardClick, showNewBa
             aria-label={playing ? `Pause ${song.name}` : `Play ${song.name}`}
             aria-pressed={playing}
             initial="hidden"
-            animate={playing ? 'active' : 'visible'}
+            animate={isHovered || playing ? (playing ? 'active' : 'visible') : 'hidden'}
             variants={playBtnVariants}
             whileTap={{ scale: 0.96 }}
             style={{ translateZ: 0 }}
@@ -243,4 +299,6 @@ export default function SongCard({ song, playlist, index, onCardClick, showNewBa
       </div>
     </motion.div>
   );
-}
+});
+
+export default SongCard;

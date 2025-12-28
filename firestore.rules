@@ -1,0 +1,200 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 🔒 MAXIMUM-SECURITY ADMIN-ONLY COLLECTIONS
+    // ZERO-TRUST POLICY:
+    // - EXPLICIT DENY by default
+    // - ONLY admin claim grants access
+    // - NO email checks
+    // - NO fallback permissions
+    // - COMPREHENSIVE audit trail
+    
+    // Admin analytics - SINGLE ADMIN ONLY
+    match /admin_analytics/{document=**} {
+      allow read, write: if isSingleAdmin();
+    }
+    
+    // Admin songs - SINGLE ADMIN ONLY  
+    match /admin_songs/{document=**} {
+      allow read, write: if isSingleAdmin();
+    }
+    
+    // Admin users - SINGLE ADMIN ONLY
+    match /admin_users/{document=**} {
+      allow read, write: if isSingleAdmin();
+    }
+    
+    // Admin configuration - SINGLE ADMIN ONLY
+    match /admin_config/{document=**} {
+      allow read, write: if isSingleAdmin();
+    }
+    
+    // Admin logs - SINGLE ADMIN ONLY
+    match /admin_logs/{document=**} {
+      allow read, write: if isSingleAdmin();
+    }
+    
+    // Admin system - SINGLE ADMIN ONLY
+    match /admin_system/{document=**} {
+      allow read, write: if isSingleAdmin();
+    }
+    
+    // Admin dashboard data - SINGLE ADMIN ONLY
+    match /admin_dashboard/{document=**} {
+      allow read, write: if isSingleAdmin();
+    }
+    
+    // Admin audit trail - SINGLE ADMIN ONLY
+    match /admin_audit/{document=**} {
+      allow read, write: if isSingleAdmin();
+    }
+    
+    // 📊 USER DATA COLLECTIONS (ZERO-TRUST)
+    // Users can ONLY access their own data, admin has override
+    
+    // User playlists - strict ownership or admin
+    match /playlists/{playlistId} {
+      allow read, write: if isSingleAdmin() || 
+        (isAuthenticatedUser() && resource.data.userId == request.auth.uid);
+      allow create: if isSingleAdmin() || 
+        (isAuthenticatedUser() && request.resource.data.userId == request.auth.uid);
+    }
+    
+    // User preferences - strict ownership or admin
+    match /user_preferences/{userId} {
+      allow read, write: if isAdminOrOwner(userId);
+    }
+    
+    // User play history - strict ownership or admin
+    match /play_history/{userId} {
+      allow read, write: if isAdminOrOwner(userId);
+    }
+    
+    // User sessions - strict ownership or admin
+    match /user_sessions/{userId} {
+      allow read, write: if isAdminOrOwner(userId);
+    }
+    
+    // 🎵 PUBLIC DATA COLLECTIONS (CONTROLLED ACCESS)
+    // Read for authenticated users, write for admin only
+    
+    // Song catalog - read for users, write for admin only
+    match /songs/{songId} {
+      allow read: if isAuthenticatedUser();
+      allow write: if isSingleAdmin();
+    }
+    
+    // Artist information - read for users, write for admin only
+    match /artists/{artistId} {
+      allow read: if isAuthenticatedUser();
+      allow write: if isSingleAdmin();
+    }
+    
+    // Album information - read for users, write for admin only
+    match /albums/{albumId} {
+      allow read: if isAuthenticatedUser();
+      allow write: if isSingleAdmin();
+    }
+    
+    // Genre information - read for users, write for admin only
+    match /genres/{genreId} {
+      allow read: if isAuthenticatedUser();
+      allow write: if isSingleAdmin();
+    }
+    
+    // 🔒 MAXIMUM-SECURITY VALIDATION FUNCTIONS
+    // ZERO-TRUST POLICY: Explicit validation only
+    
+    // 🚨 CRITICAL: Single admin validation (MAXIMUM SECURITY)
+    function isSingleAdmin() {
+      return request.auth != null 
+        && request.auth.uid != null 
+        && request.auth.token != null
+        && request.auth.token.admin == true
+        && request.auth.token.email_verified == true
+        && request.auth.token.email != null;
+    }
+    
+    // 🔒 Authenticated user validation
+    function isAuthenticatedUser() {
+      return request.auth != null 
+        && request.auth.uid != null
+        && request.auth.token != null
+        && request.auth.token.email_verified == true;
+    }
+    
+    // 🛡️ User ownership validation (strict)
+    function isVerifiedOwner(userId) {
+      return isAuthenticatedUser()
+        && request.auth.uid == userId;
+    }
+    
+    // 🚨 Admin or owner validation (admin takes precedence)
+    function isAdminOrOwner(userId) {
+      return isSingleAdmin() || isVerifiedOwner(userId);
+    }
+    
+    // 🔐 EXAMPLE USAGE WITH FUNCTIONS
+    // You can use these patterns for additional collections
+    
+    // Example: User-specific data with admin override
+    match /user_data/{userId} {
+      allow read, write: if isAdminOrOwner(userId);
+    }
+    
+    // Example: Admin-only system configuration
+    match /system_config/{document} {
+      allow read, write: if isAdmin();
+    }
+    
+    // 🚨 MAXIMUM-SECURITY DEFAULT DENY
+    // ZERO-TRUST: Explicit denial of ALL unmatched paths
+    // NO exceptions, NO fallbacks, NO permissive rules
+    match /{document=**} {
+      allow read: if false;
+      allow write: if false;
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
+      allow list: if false;
+      allow get: if false;
+    }
+  }
+}
+
+/*
+🔐 SECURITY EXPLANATION:
+
+1. ADMIN ACCESS ENFORCEMENT:
+   - All admin collections require request.auth.token.admin == true
+   - This custom claim is cryptographically signed by Firebase
+   - Cannot be forged or modified by frontend code
+   - Only Firebase Admin SDK can set these claims
+
+2. WHY THIS IS SECURE:
+   - Custom claims are server-side only
+   - Claims are included in JWT tokens
+   - Firebase validates token signatures
+   - Rules run on Firebase servers, not client
+   - No way for frontend to bypass these rules
+
+3. WHY EMAIL-BASED CHECKS ARE INSECURE:
+   - Emails can be spoofed in requests
+   - Frontend code can be modified
+   - No cryptographic verification
+   - Relies on client-side validation
+
+4. DEFENSE IN DEPTH:
+   - Server-side middleware checks claims
+   - Database rules double-check claims
+   - Frontend checks are UX-only
+   - Hard-coded admin email in backend script
+
+5. ADMIN CLAIM VERIFICATION:
+   - Only one admin email allowed (hard-coded)
+   - Claims set via secure backend script
+   - Claims verified on every request
+   - Automatic token refresh handles expiration
+*/

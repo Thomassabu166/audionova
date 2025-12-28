@@ -1,4 +1,6 @@
 import axios from 'axios';
+import { makeRateLimitedCall } from '@/utils/apiRateLimit';
+import { monitoredApiCall } from '@/utils/apiMonitor';
 
 // Create an axios instance with timeout
 const apiClient = axios.create({
@@ -7,7 +9,7 @@ const apiClient = axios.create({
 
 const API_BASE_URL = 'https://jiosaavn-api-privatecvc2.vercel.app';
 
-// Utility function to get the highest quality image
+// Utility function to get the highest quality image with better deduplication
 export const getHighestQualityImage = (images: Array<{ quality?: string; link: string }> | string): string => {
   if (!images) return '';
 
@@ -23,8 +25,44 @@ export const getHighestQualityImage = (images: Array<{ quality?: string; link: s
 
   if (images.length === 0) return '';
 
-  // Filter out images with invalid data
-  const validImages = images.filter(img => img && img.link);
+  // Filter out images with invalid data and suspicious URLs
+  const validImages = images.filter(img => {
+    if (!img || !img.link || typeof img.link !== 'string') return false;
+    
+    const url = img.link.toLowerCase();
+    const suspiciousPatterns = [
+      'placeholder',
+      'default',
+      'generic',
+      'unknown',
+      'noimage',
+      'no_image',
+      'missing',
+      'temp',
+      'thumbnail_',
+      'thumb_',
+      'small_',
+      '50x50',
+      '100x100',
+      '150x150',
+      'banner',
+      'cover_all',
+      'playlist'
+    ];
+    
+    // Reject URLs with suspicious patterns
+    if (suspiciousPatterns.some(pattern => url.includes(pattern))) {
+      return false;
+    }
+    
+    // Reject very short URLs (likely invalid)
+    if (img.link.length < 30) {
+      return false;
+    }
+    
+    return true;
+  });
+  
   if (validImages.length === 0) return '';
 
   // Sort images by quality (highest first) - handle cases where quality might be missing
@@ -112,10 +150,19 @@ class JioSaavnAPI {
 
   async searchSongs(query: string, limit: number = 50): Promise<Song[]> {
     try {
-      const response = await apiClient.get(`${this.baseURL}/search/songs`, {
-        params: { query, limit }
-      });
-      return response.data.data.results || [];
+      return await monitoredApiCall(
+        'search/songs',
+        () => makeRateLimitedCall(
+          'search/songs',
+          async () => {
+            const response = await apiClient.get(`${this.baseURL}/search/songs`, {
+              params: { query, limit }
+            });
+            return response.data.data.results || [];
+          },
+          { maxRetries: 1, retryDelay: 2000 }
+        )
+      );
     } catch (error) {
       console.error('Error searching songs:', error);
       return [];
@@ -148,10 +195,28 @@ class JioSaavnAPI {
 
   async getSongById(id: string): Promise<Song | null> {
     try {
-      const response = await apiClient.get(`${this.baseURL}/songs/${id}`);
-      return response.data.data[0] || null;
-    } catch (error) {
-      console.error('Error getting song:', error);
+      return await makeRateLimitedCall(
+        `songs/${id}`,
+        async () => {
+          const response = await apiClient.get(`${this.baseURL}/songs/${id}`);
+          return response.data.data[0] || null;
+        },
+        { maxRetries: 1, retryDelay: 1500 }
+      );
+    } catch (error: any) {
+      // Reduce console spam by only logging significant errors
+      if (error?.response?.status === 404) {
+        // Don't log 404 errors as they're common and expected
+        return null;
+      } else if (error?.response?.status === 403) {
+        console.debug(`[JioSaavn] Rate limited for song: ${id}`);
+      } else if (error?.code === 'ECONNABORTED') {
+        console.debug(`[JioSaavn] Timeout getting song: ${id}`);
+      } else if (error?.response?.status >= 500) {
+        console.warn(`[JioSaavn] Server error (${error.response.status}) for song: ${id}`);
+      } else {
+        console.debug('[JioSaavn] Error getting song:', error?.message || error);
+      }
       return null;
     }
   }
@@ -492,11 +557,17 @@ class JioSaavnAPI {
       const currentYear = 2025; // Only 2025 songs
       const seenImages = new Set<string>(); // Track images to avoid duplicates
       const seenNames = new Set<string>(); // Track names to avoid duplicates
+      let rateLimitHit = false;
 
       for (const query of queries) {
         try {
+          // Add delay between requests to avoid rate limiting
+          if (allSongs.length > 0) {
+            await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay
+          }
+
           const response = await apiClient.get(`${this.baseURL}/search/songs`, {
-            params: { query, limit: 20 }
+            params: { query, limit: 15 } // Reduced limit to avoid rate limiting
           });
           if (response.data && response.data.data && response.data.data.results) {
             const songs = response.data.data.results;
@@ -544,7 +615,13 @@ class JioSaavnAPI {
               allSongs.push(...hindiSongs);
             }
           }
-        } catch (err) {
+        } catch (err: any) {
+          if (err?.response?.status === 403) {
+            console.warn(`[JioSaavn] Rate limit hit for Hindi query: ${query}`);
+            rateLimitHit = true;
+            // Break early if we hit rate limit to avoid further issues
+            break;
+          }
           continue;
         }
       }
@@ -557,7 +634,12 @@ class JioSaavnAPI {
       // Shuffle to add variety
       const shuffled = uniqueSongs.sort(() => Math.random() - 0.5);
 
-      console.log('[JioSaavn] Hindi trending songs (2025 only, unique):', shuffled.length);
+      const resultCount = shuffled.length;
+      if (rateLimitHit && resultCount < 20) {
+        console.warn(`[JioSaavn] Hindi trending songs limited due to rate limiting: ${resultCount}`);
+      } else {
+        console.log('[JioSaavn] Hindi trending songs (2025 only, unique):', resultCount);
+      }
 
       return shuffled.slice(0, 50);
     } catch (error) {
