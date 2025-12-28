@@ -25,7 +25,7 @@ A modern, full-stack music streaming application with advanced features like cov
 - **Responsive design** optimized for all devices
 - **Performance optimized** with lazy loading and caching
 - **Comprehensive testing** with unit and integration tests
-- **Production-ready** with deployment guides
+- **Production-ready** with MongoDB Atlas Setups
 
 ## 🚀 Quick Start
 
@@ -38,7 +38,7 @@ A modern, full-stack music streaming application with advanced features like cov
 ### 1. Clone and Install
 
 ```bash
-git clone https://github.com/yourusername/audionova.git
+git clone https://github.com/Thomassabu166/audionova.git
 cd audionova
 npm install
 cd backend && npm install
@@ -138,11 +138,37 @@ cd backend && node scripts/test-bad-cases.js
 
 ## 📚 Documentation
 
-- **[Cover Verification System](COVER_VERIFICATION_IMPLEMENTATION.md)** - Advanced cover art verification
-- **[Quick Start Guide](COVER_VERIFICATION_QUICKSTART.md)** - Get running in 5 minutes
-- **[Deployment Guide](COVER_VERIFICATION_DEPLOYMENT_CHECKLIST.md)** - Production deployment
-- **[API Documentation](backend/COVER_VERIFICATION_README.md)** - Complete API reference
-- **[Architecture Overview](backend/COVER_VERIFICATION_ARCHITECTURE.md)** - System architecture
+- **[Demo Mode Quick Start](DEMO_MODE_QUICKSTART.md)** - Test the app immediately (no setup required)
+- **[Security Setup Guide](SECURITY_SETUP.md)** - Production credentials configuration
+- **[MongoDB Atlas Setup](backend/docs/MONGODB_ATLAS_SETUP.md)** - Database configuration guide
+- **[Spotify API Setup](backend/docs/SPOTIFY_SETUP.md)** - Playlist import configuration
+- **[New Releases Architecture](docs/NEW_RELEASES_ARCHITECTURE.md)** - System architecture overview
+
+### ?? Development Guides
+- **[New Releases System](docs/NEW_RELEASES_DEVELOPER_GUIDE.md)** - New releases feature development
+- **[API Error Handling](docs/API_ERROR_HANDLING_IMPROVEMENTS.md)** - Error handling improvements
+- **[Audio Quality Features](docs/AUDIO_QUALITY_IMPROVEMENTS.md)** - Audio quality enhancements
+
+### ?? UI/UX Documentation
+- **[Micro Interactions](docs/MICRO_INTERACTIONS.md)** - UI animation and interaction details
+- **[Shared Element Transitions](docs/SHARED_ELEMENT_TRANSITIONS.md)** - Advanced UI transitions
+
+### ?? Security & Admin
+- **[Admin Security](docs/ADMIN_SECURITY.md)** - Admin panel security features
+- **[Emergency Admin Recovery](docs/EMERGENCY_ADMIN_RECOVERY.md)** - Emergency access procedures
+
+###  Development Guides
+- **[New Releases System](docs/NEW_RELEASES_DEVELOPER_GUIDE.md)** - New releases feature development
+- **[API Error Handling](docs/API_ERROR_HANDLING_IMPROVEMENTS.md)** - Error handling improvements
+- **[Audio Quality Features](docs/AUDIO_QUALITY_IMPROVEMENTS.md)** - Audio quality enhancements
+
+###  UI/UX Documentation
+- **[Micro Interactions](docs/MICRO_INTERACTIONS.md)** - UI animation and interaction details
+- **[Shared Element Transitions](docs/SHARED_ELEMENT_TRANSITIONS.md)** - Advanced UI transitions
+
+###  Security & Admin
+- **[Admin Security](docs/ADMIN_SECURITY.md)** - Admin panel security features
+- **[Emergency Admin Recovery](docs/EMERGENCY_ADMIN_RECOVERY.md)** - Emergency access procedures
 
 ## 🚀 Deployment
 
@@ -158,7 +184,7 @@ npm run build        # Build frontend
 cd backend && npm start  # Start backend
 ```
 
-See [DEPLOYMENT_CHECKLIST.md](COVER_VERIFICATION_DEPLOYMENT_CHECKLIST.md) for detailed production deployment guide.
+See [DEPLOYMENT_CHECKLIST.md](backend/docs/MONGODB_ATLAS_SETUP.md) for detailed production MongoDB Atlas Setup.
 
 ## 🔒 Security
 
@@ -191,7 +217,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 📞 Support
 
 - 📧 Email: support@audionova.com
-- 🐛 Issues: [GitHub Issues](https://github.com/yourusername/audionova/issues)
+- 🐛 Issues: [GitHub Issues](https://github.com/Thomassabu166/audionova/issues)
 - 📖 Docs: [Documentation](docs/)
 
 ---
