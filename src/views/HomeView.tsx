@@ -17,6 +17,7 @@ import { useNavigate } from 'react-router-dom';
 import PlaylistSidebar from '@/components/PlaylistSidebar';
 import EnhancedFullscreenPlaylistView from '@/components/EnhancedFullscreenPlaylistView';
 import { usePlaylistSidebar } from '@/context/PlaylistSidebarContext';
+import { useScrollOptimization } from '@/hooks/useScrollOptimization';
 import { getLangCode, normalizeSongImage as normalizeSongImageUtil, balanceByLanguage, dedupeSongs } from '@/utils/song';
 import { normalizeSongImage, isLikelyWrongImage, getCachedImage, setCachedImage } from '@/utils/songImage';
 
@@ -177,6 +178,9 @@ const HomeView: React.FC = () => {
     currentSong,
     setPlaylistAndPlay,
   } = useMusic();
+
+  // Add scroll optimization
+  useScrollOptimization();
 
 
   const navigate = useNavigate();
@@ -703,28 +707,33 @@ const HomeView: React.FC = () => {
 
   return (
     <div className="flex w-full h-full">
+      {/* Fullscreen Playlist View - Render at top level when active */}
+      {selectedPlaylist && (
+        <EnhancedFullscreenPlaylistView
+          playlist={{
+            ...selectedPlaylist,
+            description: selectedPlaylist.description || '',
+            createdAt: selectedPlaylist.createdAt || new Date(),
+            version: selectedPlaylist.version || 1
+          }}
+          onClose={() => setSelectedPlaylist(null)}
+        />
+      )}
+
       {/* Main content - OPTIMIZED: Reduced animations for better scroll performance */}
-      <div
-        className="flex-1 overflow-auto scrollbar-hide scroll-smooth optimize-scroll transition-all duration-300 ease-out"
-        style={{ 
-          marginRight: isPlaylistSidebarOpen ? 320 : 0,
-          willChange: 'auto' // Remove willChange to reduce GPU usage
-        }}
-      >
-        {selectedPlaylist && (
-          <EnhancedFullscreenPlaylistView
-            playlist={{
-              ...selectedPlaylist,
-              description: selectedPlaylist.description || '',
-              createdAt: selectedPlaylist.createdAt || new Date(),
-              version: selectedPlaylist.version || 1
-            }}
-            onClose={() => setSelectedPlaylist(null)}
-          />
-        )}
+      {!selectedPlaylist && (
+        <div
+          className="flex-1 overflow-auto scrollbar-hide"
+          style={{ 
+            marginRight: isPlaylistSidebarOpen ? 320 : 0,
+            scrollBehavior: 'auto', // Remove smooth scrolling for better performance
+            contain: 'layout style paint', // Optimize rendering
+            overscrollBehavior: 'contain' // Prevent overscroll bounce
+          }}
+        >
 
         {/* OPTIMIZED: Simplified sticky header without heavy backdrop blur */}
-        <div className="sticky top-0 z-10 bg-background/90 border-b border-border px-6 md:px-8 lg:px-12 py-4">
+        <div className="sticky top-0 z-10 bg-background border-b border-border px-6 md:px-8 lg:px-12 py-4">
           <Greeting />
         </div>
 
@@ -740,13 +749,12 @@ const HomeView: React.FC = () => {
               <div className="flex items-center gap-3">
                 <button
                   onClick={handleToggleSidebar}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-300 ${isPlaylistSidebarOpen
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium ${isPlaylistSidebarOpen
                     ? 'bg-red-500 text-white shadow-lg'
                     : 'bg-white/20 hover:bg-white/30 text-white border border-white/30'
                     }`}
                 >
                   <div
-                    className="transition-transform duration-300"
                     style={{ transform: isPlaylistSidebarOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
                   >
                     <Library className="w-5 h-5" />
@@ -997,25 +1005,28 @@ const HomeView: React.FC = () => {
           )}
         </div>
         {/* End content wrapper */}
-      </div>
-      </div>
+        </div>
+        </div>
+      )}
 
-      {/* Playlist Sidebar - Attached to the right without blur */}
-      <PlaylistSidebar
-        isOpen={isPlaylistSidebarOpen}
-        onClose={handleToggleSidebar}
-        onPlaylistSelect={(playlist) => {
-          setSelectedPlaylist({
-            id: playlist.id,
-            name: playlist.name,
-            description: playlist.description,
-            tracks: playlist.tracks,
-            image: playlist.image,
-            createdAt: playlist.createdAt,
-            version: playlist.version
-          });
-        }}
-      />
+      {/* Playlist Sidebar - Only show when fullscreen playlist is not open */}
+      {!selectedPlaylist && (
+        <PlaylistSidebar
+          isOpen={isPlaylistSidebarOpen}
+          onClose={handleToggleSidebar}
+          onPlaylistSelect={(playlist) => {
+            setSelectedPlaylist({
+              id: playlist.id,
+              name: playlist.name,
+              description: playlist.description,
+              tracks: playlist.tracks,
+              image: playlist.image,
+              createdAt: playlist.createdAt,
+              version: playlist.version
+            });
+          }}
+        />
+      )}
     </div>
   );
 };

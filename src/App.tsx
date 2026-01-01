@@ -102,11 +102,11 @@ function App() {
 
     // Intercept window.addEventListener to suppress error events
     const originalAddEventListener = window.addEventListener;
-    window.addEventListener = function(type, listener, options) {
+    window.addEventListener = function(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) {
       if (type === 'error' || type === 'unhandledrejection') {
-        const wrappedListener = function(event) {
+        const wrappedListener = function(this: Window, event: Event) {
           // Check if it's a CORS-related error
-          if (event.message && event.message.includes('Cross-Origin-Opener-Policy')) {
+          if ((event as ErrorEvent).message && (event as ErrorEvent).message.includes('Cross-Origin-Opener-Policy')) {
             event.preventDefault();
             event.stopPropagation();
             return false;
@@ -149,7 +149,7 @@ function App() {
     };
 
     // Global error handler to catch any remaining errors
-    const globalErrorHandler = (event) => {
+    const globalErrorHandler = (event: ErrorEvent) => {
       if (event.message && event.message.includes('Cross-Origin-Opener-Policy')) {
         event.preventDefault();
         event.stopPropagation();
@@ -157,7 +157,7 @@ function App() {
       }
     };
 
-    const globalUnhandledRejectionHandler = (event) => {
+    const globalUnhandledRejectionHandler = (event: PromiseRejectionEvent) => {
       if (event.reason && String(event.reason).includes('Cross-Origin-Opener-Policy')) {
         event.preventDefault();
         return false;

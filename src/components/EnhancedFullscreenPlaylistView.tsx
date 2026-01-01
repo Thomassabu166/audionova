@@ -526,7 +526,7 @@ const EnhancedFullscreenPlaylistView: React.FC<EnhancedFullscreenPlaylistViewPro
     };
   }, [isSwiping, swipeStartY, swipeOffset, onClose]);
   
-  // Trap focus inside modal
+  // Trap focus inside modal and prevent body scroll
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -534,12 +534,22 @@ const EnhancedFullscreenPlaylistView: React.FC<EnhancedFullscreenPlaylistViewPro
       }
     };
     
+    // Prevent body scroll when fullscreen playlist is open
+    const originalOverflow = document.body.style.overflow;
+    const originalPosition = document.body.style.position;
+    
     document.addEventListener('keydown', handleKeyDown);
     document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.width = '100%';
+    document.body.style.height = '100%';
     
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = '';
+      document.body.style.overflow = originalOverflow;
+      document.body.style.position = originalPosition;
+      document.body.style.width = '';
+      document.body.style.height = '';
     };
   }, [onClose]);
   
@@ -798,26 +808,29 @@ const EnhancedFullscreenPlaylistView: React.FC<EnhancedFullscreenPlaylistViewPro
   }, []);
 
   return (
-    <div className="flex flex-col h-full fixed inset-0 z-50">
-      {/* Backdrop to cover background content */}
-      <div className="absolute inset-0 bg-background backdrop-blur-md z-0"></div>
+    <div className="fixed inset-0 z-[9999] bg-background overflow-hidden">
+      {/* Solid backdrop to completely cover background content */}
+      <div className="absolute inset-0 bg-background z-0"></div>
       
-      {/* Fixed Close buttons - always visible at top */}
-      <div className="fixed top-6 left-6 z-50 flex items-center gap-2">
-        <button 
-          onClick={onClose}
-          className="p-2 rounded-full bg-black/30 hover:bg-black/50 transition-colors backdrop-blur-sm"
-          aria-label="Go back"
-        >
-          <ArrowLeft className="w-5 h-5 text-white" />
-        </button>
-        <button 
-          onClick={onClose}
-          className="p-2 rounded-full bg-black/30 hover:bg-black/50 transition-colors backdrop-blur-sm"
-          aria-label="Close"
-        >
-          <X className="w-5 h-5 text-white" />
-        </button>
+      {/* Main fullscreen container with scroll isolation */}
+      <div className="relative z-10 h-screen w-screen flex flex-col overflow-hidden">
+        
+        {/* Fixed Close buttons - always visible at top */}
+        <div className="absolute top-6 left-6 z-50 flex items-center gap-2">
+          <button 
+            onClick={onClose}
+            className="p-2 rounded-full bg-black/30 hover:bg-black/50 transition-colors backdrop-blur-sm"
+            aria-label="Go back"
+          >
+            <ArrowLeft className="w-5 h-5 text-white" />
+          </button>
+          <button 
+            onClick={onClose}
+            className="p-2 rounded-full bg-black/30 hover:bg-black/50 transition-colors backdrop-blur-sm"
+            aria-label="Close"
+          >
+            <X className="w-5 h-5 text-white" />
+          </button>
       </div>
       
       {/* Header with parallax effect - always show in fullscreen mode */}
@@ -1199,9 +1212,24 @@ const EnhancedFullscreenPlaylistView: React.FC<EnhancedFullscreenPlaylistViewPro
       {/* Songs List */}
       <div 
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto px-6 pb-32 scrollbar-thin scrollbar-thumb-rounded-full scrollbar-track-transparent scrollbar-thumb-red-500/30 relative z-10"
+        className="flex-1 overflow-y-auto px-6 pb-32 scrollbar-thin scrollbar-thumb-rounded-full scrollbar-track-transparent scrollbar-thumb-red-500/30"
+        style={{
+          overscrollBehavior: 'contain',
+          overscrollBehaviorY: 'contain',
+          height: 'auto', // Let flex-1 handle the height
+          contain: 'layout style paint',
+          isolation: 'isolate' // Ensure scroll isolation
+        }}
+        onScroll={(e) => {
+          // Prevent scroll propagation to parent elements
+          e.stopPropagation();
+        }}
+        onWheel={(e) => {
+          // Prevent wheel events from propagating to parent
+          e.stopPropagation();
+        }}
       >
-        <div className="bg-card/80 rounded-lg overflow-hidden border border-border backdrop-blur-sm mt-4 min-h-full">
+        <div className="bg-background rounded-lg overflow-hidden border border-border mt-4 min-h-full">
           {/* Table Header */}
           <div className="grid grid-cols-12 gap-4 px-4 py-3 border-b border-border text-muted-foreground text-sm font-medium sticky top-0 bg-card/90 backdrop-blur z-10">
             <div className="col-span-1">#</div>
@@ -1218,55 +1246,66 @@ const EnhancedFullscreenPlaylistView: React.FC<EnhancedFullscreenPlaylistViewPro
             {isLoading ? (
               renderSkeletonTracks()
             ) : (
-              filteredSongs.map((song: any, mapIndex: number) => {
-                // Use mapIndex to find the actual position in the original playlist
-                // We need to count how many times we've seen this song before in the filtered list
-                let occurrenceCount = 0;
-                for (let i = 0; i < mapIndex; i++) {
-                  if (filteredSongs[i].id === song.id) {
-                    occurrenceCount++;
-                  }
-                }
-                
-                // Find the nth occurrence of this song in the original playlist
-                let foundCount = 0;
-                let originalIndex = -1;
-                for (let i = 0; i < playlist.tracks.length; i++) {
-                  if (playlist.tracks[i].id === song.id) {
-                    if (foundCount === occurrenceCount) {
-                      originalIndex = i;
-                      break;
+              <>
+                {filteredSongs.map((song: any, mapIndex: number) => {
+                  // Use mapIndex to find the actual position in the original playlist
+                  // We need to count how many times we've seen this song before in the filtered list
+                  let occurrenceCount = 0;
+                  for (let i = 0; i < mapIndex; i++) {
+                    if (filteredSongs[i].id === song.id) {
+                      occurrenceCount++;
                     }
-                    foundCount++;
                   }
-                }
+                  
+                  // Find the nth occurrence of this song in the original playlist
+                  let foundCount = 0;
+                  let originalIndex = -1;
+                  for (let i = 0; i < playlist.tracks.length; i++) {
+                    if (playlist.tracks[i].id === song.id) {
+                      if (foundCount === occurrenceCount) {
+                        originalIndex = i;
+                        break;
+                      }
+                      foundCount++;
+                    }
+                  }
+                  
+                  const displayIndex = originalIndex !== -1 ? originalIndex + 1 : mapIndex + 1;
+                  
+                  const isCurrent = currentSong?.id === song.id;
+                  const songImage = getSongImage(song);
+                  
+                  // Use a unique key combining playlist ID, map index, and song ID
+                  // mapIndex ensures uniqueness even when the same song appears multiple times
+                  const uniqueKey = `playlist-${playlist.id}-idx-${mapIndex}-${song.id}`;
+                  
+                  return (
+                    <SongItem
+                      key={uniqueKey}
+                      song={song}
+                      playlistId={playlist.id}
+                      isCurrent={isCurrent}
+                      displayIndex={displayIndex}
+                      songImage={songImage}
+                      onPlaySong={playSongFromPlaylist}
+                      onLikeToggle={handleLikeToggle}
+                      isSongLiked={isSongLiked}
+                      formatDuration={formatDuration}
+                      isPlaying={isPlaying}
+                      audioRef={audioRef}
+                    />
+                  );
+                })}
                 
-                const displayIndex = originalIndex !== -1 ? originalIndex + 1 : mapIndex + 1;
-                
-                const isCurrent = currentSong?.id === song.id;
-                const songImage = getSongImage(song);
-                
-                // Use a unique key combining playlist ID, map index, and song ID
-                // mapIndex ensures uniqueness even when the same song appears multiple times
-                const uniqueKey = `playlist-${playlist.id}-idx-${mapIndex}-${song.id}`;
-                
-                return (
-                  <SongItem
-                    key={uniqueKey}
-                    song={song}
-                    playlistId={playlist.id}
-                    isCurrent={isCurrent}
-                    displayIndex={displayIndex}
-                    songImage={songImage}
-                    onPlaySong={playSongFromPlaylist}
-                    onLikeToggle={handleLikeToggle}
-                    isSongLiked={isSongLiked}
-                    formatDuration={formatDuration}
-                    isPlaying={isPlaying}
-                    audioRef={audioRef}
-                  />
-                );
-              })
+                {/* End of playlist indicator to prevent scroll bleed-through */}
+                <div className="p-8 text-center text-muted-foreground">
+                  <div className="flex flex-col items-center gap-2">
+                    <Music className="w-8 h-8 opacity-50" />
+                    <p className="text-sm">End of playlist</p>
+                    <p className="text-xs opacity-75">{filteredSongs.length} songs total</p>
+                  </div>
+                </div>
+              </>
             )}
           </AnimatePresence>
         </div>
@@ -1380,6 +1419,7 @@ const EnhancedFullscreenPlaylistView: React.FC<EnhancedFullscreenPlaylistViewPro
           </motion.div>
         )}
       </AnimatePresence>
+      </div>
       
       {/* Playlist Editor */}
       <PlaylistEditor

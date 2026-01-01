@@ -42,7 +42,7 @@ async function setupMongoDB() {
     }
     
     // Update the MongoDB URI with the password
-    const mongoUri = `mongodb+srv://thomassabu512_db_user:${password}@cluster0.5g8kgl1.mongodb.net/musicplayer?retryWrites=true&w=majority&appName=Cluster0`;
+    const mongoUri = `mongodb+srv://your_username:${password}@your-cluster.mongodb.net/your-database?retryWrites=true&w=majority`;
     
     console.log('\n🔄 Testing MongoDB connection...');
     

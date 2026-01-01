@@ -15,7 +15,7 @@ if (!password) {
   console.log('   or');
   console.log('   node scripts/update-mongodb-password.js YOUR_PASSWORD\n');
   console.log('📋 Your MongoDB Atlas connection string should be:');
-  console.log('   mongodb+srv://thomassabu512_db_user:YOUR_PASSWORD@cluster0.5g8kgl1.mongodb.net/musicplayer?retryWrites=true&w=majority&appName=Cluster0\n');
+  console.log('   mongodb+srv://your_username:YOUR_PASSWORD@your-cluster.mongodb.net/your-database?retryWrites=true&w=majority\n');
   process.exit(1);
 }
 
@@ -30,7 +30,7 @@ try {
   let envContent = fs.readFileSync(envPath, 'utf8');
   
   // Create the new MongoDB URI with the provided password
-  const newMongoUri = `mongodb+srv://thomassabu512_db_user:${password}@cluster0.5g8kgl1.mongodb.net/musicplayer?retryWrites=true&w=majority&appName=Cluster0`;
+  const newMongoUri = `mongodb+srv://your_username:${password}@your-cluster.mongodb.net/your-database?retryWrites=true&w=majority`;
   
   // Replace the MongoDB URI line
   const mongoUriRegex = /MONGODB_URI=.*/;
@@ -51,7 +51,7 @@ try {
   console.log('3. Your app will now use MongoDB Atlas for data storage\n');
   
   console.log('🔍 Connection string (password hidden):');
-  console.log(`   mongodb+srv://thomassabu512_db_user:***@cluster0.5g8kgl1.mongodb.net/musicplayer?retryWrites=true&w=majority&appName=Cluster0\n`);
+  console.log(`   mongodb+srv://your_username:***@your-cluster.mongodb.net/your-database?retryWrites=true&w=majority\n`);
   
 } catch (error) {
   console.error('❌ Error updating .env file:', error.message);

@@ -10,12 +10,12 @@ You need to replace `<db_password>` in your `.env` file with your actual MongoDB
 
 **Current MongoDB URI in your `.env` file:**
 ```
-MONGODB_URI=mongodb+srv://thomassabu512_db_user:<db_password>@cluster0.5g8kgl1.mongodb.net/musicplayer?retryWrites=true&w=majority&appName=Cluster0
+MONGODB_URI=mongodb+srv://your_username:<db_password>@your-cluster.mongodb.net/your-database?retryWrites=true&w=majority
 ```
 
 **Replace `<db_password>` with your actual password:**
 ```
-MONGODB_URI=mongodb+srv://thomassabu512_db_user:YOUR_ACTUAL_PASSWORD@cluster0.5g8kgl1.mongodb.net/musicplayer?retryWrites=true&w=majority&appName=Cluster0
+MONGODB_URI=mongodb+srv://your_username:YOUR_ACTUAL_PASSWORD@your-cluster.mongodb.net/your-database?retryWrites=true&w=majority
 ```
 
 ### 2. MongoDB Atlas Configuration Checklist

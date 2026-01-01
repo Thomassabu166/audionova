@@ -1,6 +1,20 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { debugProfileImage } from '../utils/profileImageDebug';
+
+// Simple image URL validation function
+const validateImageUrl = (url: string): Promise<boolean> => {
+  return new Promise((resolve) => {
+    if (!url || typeof url !== 'string') {
+      resolve(false);
+      return;
+    }
+    
+    const img = new Image();
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+    img.src = url;
+  });
+};
 
 export const useProfilePicture = () => {
   const { user } = useAuth();
@@ -27,8 +41,19 @@ export const useProfilePicture = () => {
           displayName: user.displayName
         });
         
-        // Get the debug info which includes localStorage and Firebase data
-        const debugInfo = debugProfileImage.getDebugInfo(user.uid, user.photoURL);
+        // Get profile picture info
+        const savedPicture = localStorage.getItem(`profilePicture_${user.uid}`);
+        const finalPicture = user.photoURL || savedPicture;
+        
+        const debugInfo = {
+          uid: user.uid,
+          photoURL: user.photoURL,
+          savedPicture,
+          finalPicture,
+          hasFirebasePhoto: !!user.photoURL,
+          hasSavedPhoto: !!savedPicture
+        };
+        
         console.log('📊 Profile picture debug info:', debugInfo);
         
         if (debugInfo.finalPicture) {
@@ -43,8 +68,8 @@ export const useProfilePicture = () => {
           
           console.log('🔍 Validating profile picture URL:', debugInfo.finalPicture);
           
-          // Validate other image URLs before using them
-          const isValid = await debugProfileImage.validateImageUrl(debugInfo.finalPicture);
+          // Simple URL validation
+          const isValid = await validateImageUrl(debugInfo.finalPicture);
           
           if (isValid) {
             setProfilePicture(debugInfo.finalPicture);
@@ -54,7 +79,7 @@ export const useProfilePicture = () => {
             // Only clear localStorage if the invalid image came from there
             if (debugInfo.savedPicture && debugInfo.savedPicture === debugInfo.finalPicture) {
               console.log('🗑️ Clearing invalid image from localStorage');
-              debugProfileImage.clearProfileImage(user.uid);
+              localStorage.removeItem(`profilePicture_${user.uid}`);
             }
             setProfilePicture(null);
             setError('Profile picture could not be loaded');
@@ -107,7 +132,7 @@ export const useProfilePicture = () => {
 
   const clearProfilePicture = () => {
     if (user) {
-      debugProfileImage.clearProfileImage(user.uid);
+      localStorage.removeItem(`profilePicture_${user.uid}`);
       setProfilePicture(null);
       setError(null);
     }
